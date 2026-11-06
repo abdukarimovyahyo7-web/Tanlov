@@ -8,8 +8,13 @@ import { GallerySection } from './components/GallerySection.tsx';
 import { Footer } from './components/Footer.tsx';
 import { ContactModal } from './components/ContactModal.tsx';
 import { DownloadModal } from './components/DownloadModal.tsx';
+import { PhoneWidgetsModal } from './components/PhoneWidgetsModal.tsx';
+import { OfflineIndicator } from './components/OfflineIndicator.tsx';
+import { UzbekistanElectionModal } from './components/UzbekistanElectionModal.tsx';
+import { GitHubModal } from './components/GitHubModal.tsx';
 import { sound } from './utils/audio.ts';
 import { GridCell } from './types/game.ts';
+import { NationalJob, INITIAL_NATIONAL_JOBS, calculateJobsIncomePerSecond } from './game/jobs.ts';
 import {
   loadGameFromStorage,
   saveGameToStorage,
@@ -19,12 +24,51 @@ import {
   SavedGameState,
   SavedActionLog,
   SavedCitizen,
+  SavedDistrictData,
 } from './utils/storage.ts';
 import { calculateIncomePerSecond } from './game/rules.ts';
+import { findDistrictById, DEFAULT_DISTRICT_ID, UZBEKISTAN_REGIONS } from './data/uzbekistanRegions.ts';
+import { DistrictElectionState, Candidate, initializeDistrictElection } from './types/election.ts';
 
 export default function App() {
   // Load saved state or use initial fallbacks
   const [initialData] = useState(() => loadGameFromStorage());
+
+  // Current selected district in Uzbekistan (Google Maps official naming)
+  const [currentDistrictId, setCurrentDistrictId] = useState<string>(
+    () => initialData?.currentDistrictId ?? DEFAULT_DISTRICT_ID
+  );
+
+  // Player Instagram Handle & Presidential Status
+  const [playerInstagram, setPlayerInstagram] = useState<string>(
+    () => initialData?.playerInstagram ?? '@prezident_uzb'
+  );
+  const [isPrezident, setIsPrezident] = useState<boolean>(
+    () => initialData?.isPrezident ?? true
+  );
+
+  // Multi-District saved states
+  const [districtsData, setDistrictsData] = useState<Record<string, SavedDistrictData>>(
+    () => initialData?.districtsData ?? {}
+  );
+
+  // District Elections state
+  const [districtElections, setDistrictElections] = useState<Record<string, DistrictElectionState>>(() => {
+    if (initialData?.districtElections && typeof initialData.districtElections === 'object') {
+      return initialData.districtElections;
+    }
+    const initialElections: Record<string, DistrictElectionState> = {};
+    initialElections[DEFAULT_DISTRICT_ID] = initializeDistrictElection(DEFAULT_DISTRICT_ID, 'Chilonzor tumani');
+    return initialElections;
+  });
+
+  const [isElectionModalOpen, setIsElectionModalOpen] = useState<boolean>(false);
+  const [isGitHubOpen, setIsGitHubOpen] = useState<boolean>(false);
+
+  // National Jobs & Industries State (v1.2)
+  const [nationalJobs, setNationalJobs] = useState<NationalJob[]>(
+    () => initialData?.nationalJobs ?? INITIAL_NATIONAL_JOBS
+  );
 
   const [cells, setCells] = useState<Map<string, GridCell>>(() => {
     if (initialData?.cells && Array.isArray(initialData.cells)) {
@@ -33,7 +77,7 @@ export default function App() {
     return getDefaultInitialCells();
   });
 
-  const [budget, setBudget] = useState<number>(() => initialData?.budget ?? 150);
+  const [budget, setBudget] = useState<number>(() => Math.max(initialData?.budget ?? 500, 500));
   const [population, setPopulation] = useState<number>(() => initialData?.population ?? 45);
   const [happiness, setHappiness] = useState<number>(() => initialData?.happiness ?? 88);
   const [gridSize, setGridSize] = useState<number>(() => initialData?.gridSize ?? 10);
@@ -58,7 +102,7 @@ export default function App() {
       {
         id: 'init_1',
         timestamp: Date.now(),
-        text: "Tanlov Mahallasi shaharsozlik tizimi ishga tushirildi. Harakatlar har soniya saqlanmoqda.",
+        text: "Tanlov Mahallasi v1.2 3D Next-Gen tizimi ishga tushirildi. Harakatlar har soniya saqlanmoqda.",
         type: 'system',
       },
     ];
@@ -71,6 +115,10 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isContactOpen, setIsContactOpen] = useState<boolean>(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState<boolean>(false);
+  const [isPhoneWidgetsOpen, setIsPhoneWidgetsOpen] = useState<boolean>(false);
+
+  // Check if Burj Khalifa exists in the city
+  const hasBurjKhalifa = Array.from(cells.values()).some(c => c.type === 'burj_khalifa');
 
   // Keep a reference to current state to prevent stale closures in the 1-second auto-save interval
   const stateRef = useRef({
@@ -86,6 +134,12 @@ export default function App() {
     isometric3D,
     citizens,
     actionLog,
+    currentDistrictId,
+    playerInstagram,
+    isPrezident,
+    districtsData,
+    districtElections,
+    nationalJobs,
   });
 
   useEffect(() => {
@@ -102,6 +156,12 @@ export default function App() {
       isometric3D,
       citizens,
       actionLog,
+      currentDistrictId,
+      playerInstagram,
+      isPrezident,
+      districtsData,
+      districtElections,
+      nationalJobs,
     };
   }, [
     cells,
@@ -116,6 +176,12 @@ export default function App() {
     isometric3D,
     citizens,
     actionLog,
+    currentDistrictId,
+    playerInstagram,
+    isPrezident,
+    districtsData,
+    districtElections,
+    nationalJobs,
   ]);
 
   // Immediate save helper called after any user action
@@ -125,6 +191,12 @@ export default function App() {
       version: 1,
       timestamp: Date.now(),
       lastSavedTimestamp: Date.now(),
+      currentDistrictId: override?.currentDistrictId ?? cur.currentDistrictId,
+      playerInstagram: override?.playerInstagram ?? cur.playerInstagram,
+      isPrezident: override?.isPrezident ?? cur.isPrezident,
+      districtsData: override?.districtsData ?? cur.districtsData,
+      districtElections: override?.districtElections ?? cur.districtElections,
+      nationalJobs: override?.nationalJobs ?? cur.nationalJobs,
       cells: override?.cells ?? Array.from(cur.cells.entries()),
       budget: override?.budget ?? cur.budget,
       population: override?.population ?? cur.population,
@@ -165,12 +237,16 @@ export default function App() {
       let nextBudget = cur.budget;
       if (cur.gameSpeed > 0) {
         let businesses = 0;
+        let burjPresent = false;
         cur.cells.forEach(c => {
-          if (c.type === 'business') businesses++;
+          if (c.type === 'business' || c.type === 'megamall') businesses++;
+          if (c.type === 'burj_khalifa') burjPresent = true;
         });
-        const income = calculateIncomePerSecond(businesses, cur.population, cur.taxRate, cur.happiness);
-        if (income > 0) {
-          nextBudget = Math.round((cur.budget + income) * 10) / 10;
+        const income = calculateIncomePerSecond(businesses, cur.population, cur.taxRate, cur.happiness, burjPresent);
+        const jobsIncome = cur.nationalJobs ? calculateJobsIncomePerSecond(cur.nationalJobs) : 0;
+        const totalIncome = income + jobsIncome;
+        if (totalIncome > 0) {
+          nextBudget = Math.round((cur.budget + totalIncome) * 10) / 10;
           setBudget(nextBudget);
         }
       }
@@ -179,6 +255,12 @@ export default function App() {
         version: 1,
         timestamp: Date.now(),
         lastSavedTimestamp: Date.now(),
+        currentDistrictId: cur.currentDistrictId,
+        playerInstagram: cur.playerInstagram,
+        isPrezident: cur.isPrezident,
+        districtsData: cur.districtsData,
+        districtElections: cur.districtElections,
+        nationalJobs: cur.nationalJobs,
         cells: Array.from(cur.cells.entries()),
         budget: nextBudget,
         population: cur.population,
@@ -289,6 +371,192 @@ export default function App() {
     }
   };
 
+  // District Switching Handler (preserves each district's unique city build)
+  const handleSelectDistrict = (districtId: string) => {
+    sound.playExpansion();
+    const curDistrictInfo = findDistrictById(districtId);
+    const districtName = curDistrictInfo?.name || districtId;
+
+    // 1. Snapshot current active district
+    const curSnapshot: SavedDistrictData = {
+      cells: Array.from(cells.entries()),
+      population,
+      budget,
+      happiness,
+      gridSize,
+    };
+    const nextDistrictsData = {
+      ...districtsData,
+      [currentDistrictId]: curSnapshot,
+    };
+    setDistrictsData(nextDistrictsData);
+
+    // 2. Load target district or create fresh layout
+    const targetData = nextDistrictsData[districtId];
+    if (targetData && Array.isArray(targetData.cells) && targetData.cells.length > 0) {
+      setCells(new Map(targetData.cells));
+      setPopulation(targetData.population);
+      setBudget(targetData.budget);
+      setHappiness(targetData.happiness);
+      setGridSize(targetData.gridSize);
+    } else {
+      const freshCells = getDefaultInitialCells();
+      setCells(freshCells);
+      setPopulation(50);
+      setBudget(300);
+      setHappiness(92);
+      setGridSize(10);
+    }
+
+    // 3. Initialize district election if not yet present
+    let nextElections = { ...districtElections };
+    if (!nextElections[districtId]) {
+      nextElections[districtId] = initializeDistrictElection(districtId, districtName);
+      setDistrictElections(nextElections);
+    }
+
+    setCurrentDistrictId(districtId);
+    handleLogAction(`O'zbekiston xaritasi: ${districtName} hududiga o'tildi.`, 'system');
+
+    triggerSaveNow({
+      currentDistrictId: districtId,
+      districtsData: nextDistrictsData,
+      districtElections: nextElections,
+    });
+  };
+
+  // Voting Handler
+  const handleVote = (candidateId: string, role: 'hokim' | 'yordamchi') => {
+    sound.playCash();
+    const curElec = districtElections[currentDistrictId] || initializeDistrictElection(currentDistrictId);
+    const nick = (playerInstagram || '@fuqaro').trim().toLowerCase();
+
+    if (curElec.votedInstagrams.some(v => v.trim().toLowerCase() === nick)) {
+      alert("Siz ushbu saylov davrida allaqachon ovoz bergansiz!");
+      return;
+    }
+
+    let updatedCandName = '';
+    const updatedHokimCand = curElec.hokimCandidates.map(c => {
+      if (c.id === candidateId) {
+        updatedCandName = c.name;
+        return { ...c, votes: c.votes + 1 };
+      }
+      return c;
+    });
+
+    const updatedYordamchiCand = curElec.yordamchiCandidates.map(c => {
+      if (c.id === candidateId) {
+        updatedCandName = c.name;
+        return { ...c, votes: c.votes + 1 };
+      }
+      return c;
+    });
+
+    // Check if leader changed
+    const topHokim = [...updatedHokimCand].sort((a, b) => b.votes - a.votes)[0];
+    const topYordamchi = [...updatedYordamchiCand].sort((a, b) => b.votes - a.votes)[0];
+
+    const updatedState: DistrictElectionState = {
+      ...curElec,
+      hokimCandidates: updatedHokimCand,
+      yordamchiCandidates: updatedYordamchiCand,
+      hokim: topHokim
+        ? {
+            name: topHokim.name,
+            instagram: topHokim.instagram,
+            votes: topHokim.votes,
+            electedTimestamp: curElec.hokim.electedTimestamp,
+            role: 'hokim',
+          }
+        : curElec.hokim,
+      yordamchi: topYordamchi
+        ? {
+            name: topYordamchi.name,
+            instagram: topYordamchi.instagram,
+            votes: topYordamchi.votes,
+            electedTimestamp: curElec.yordamchi.electedTimestamp,
+            role: 'yordamchi',
+          }
+        : curElec.yordamchi,
+      votedInstagrams: [...curElec.votedInstagrams, nick],
+    };
+
+    const nextElections = {
+      ...districtElections,
+      [currentDistrictId]: updatedState,
+    };
+    setDistrictElections(nextElections);
+
+    handleLogAction(`Ovoz berildi: ${updatedCandName} ga 1 ta ovoz qo'shildi (${playerInstagram})`, 'system');
+    triggerSaveNow({ districtElections: nextElections });
+  };
+
+  // Candidate Registration Handler
+  const handleRegisterCandidate = (newCandData: Omit<Candidate, 'id' | 'votes'>) => {
+    sound.playExpansion();
+    const curElec = districtElections[currentDistrictId] || initializeDistrictElection(currentDistrictId);
+    const newCand: Candidate = {
+      ...newCandData,
+      id: `cand_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      votes: 1, // Candidate starts with 1 vote (self-vote)
+    };
+
+    const nextHokimCand = newCand.role === 'hokim' ? [newCand, ...curElec.hokimCandidates] : curElec.hokimCandidates;
+    const nextYordamchiCand = newCand.role === 'yordamchi' ? [newCand, ...curElec.yordamchiCandidates] : curElec.yordamchiCandidates;
+
+    const nextElecState: DistrictElectionState = {
+      ...curElec,
+      hokimCandidates: nextHokimCand,
+      yordamchiCandidates: nextYordamchiCand,
+    };
+
+    const nextElections = {
+      ...districtElections,
+      [currentDistrictId]: nextElecState,
+    };
+    setDistrictElections(nextElections);
+
+    handleLogAction(`Yangi nomzod ro'yxatdan o'tdi: ${newCand.name} (${newCand.instagram}) - ${newCand.role.toUpperCase()}`, 'system');
+    triggerSaveNow({ districtElections: nextElections });
+  };
+
+  // Presidential Decrees Handler
+  const handlePresidentialDecree = (decreeTitle: string, decreeType: string) => {
+    sound.playExpansion();
+    if (decreeType === 'funds') {
+      setBudget(prev => prev + 500000);
+    } else if (decreeType === 'holiday') {
+      setHappiness(100);
+    } else if (decreeType === 'tax') {
+      setTaxRate(3);
+    } else if (decreeType === 'election') {
+      const curElec = districtElections[currentDistrictId] || initializeDistrictElection(currentDistrictId);
+      const resetCycle: DistrictElectionState = {
+        ...curElec,
+        hokimCycleStart: Date.now(),
+        yordamchiCycleStart: Date.now(),
+        votedInstagrams: [],
+      };
+      setDistrictElections(prev => ({ ...prev, [currentDistrictId]: resetCycle }));
+    }
+
+    handleLogAction(decreeTitle, 'decree');
+    triggerSaveNow();
+  };
+
+  const handleUpdatePlayerInstagram = (nick: string) => {
+    setPlayerInstagram(nick);
+    handleLogAction(`Foydalanuvchi Instagram profili yangilandi: ${nick}`, 'instagram');
+    triggerSaveNow({ playerInstagram: nick });
+  };
+
+  const handleTogglePrezident = (val: boolean) => {
+    setIsPrezident(val);
+    handleLogAction(val ? "Prezidentlik (Oliy Rahbar) maqomi faollashtirildi" : "Oddiy fuqaro rejimiga o'tildi", 'decree');
+    triggerSaveNow({ isPrezident: val });
+  };
+
   const scrollToGame = () => {
     const el = document.getElementById('game-section');
     if (el) {
@@ -303,6 +571,13 @@ export default function App() {
     }
   };
 
+  // District metadata helpers
+  const currentDistrictInfo = findDistrictById(currentDistrictId);
+  const currentRegionInfo = UZBEKISTAN_REGIONS.find(r => r.id === currentDistrictInfo?.regionId);
+  const currentDistrictName = currentDistrictInfo?.name || 'Chilonzor tumani';
+  const currentRegionName = currentRegionInfo?.name || 'Toshkent shahri';
+  const activeElectionState = districtElections[currentDistrictId] || initializeDistrictElection(currentDistrictId, currentDistrictName);
+
   return (
     <div className="min-h-screen bg-[#070913] text-gray-100 flex flex-col font-['Plus_Jakarta_Sans'] selection:bg-cyan-500 selection:text-black">
       {/* Navigation */}
@@ -314,6 +589,11 @@ export default function App() {
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
         onOpenDownload={() => setIsDownloadOpen(true)}
+        onOpenPhoneWidgets={() => setIsPhoneWidgetsOpen(true)}
+        onOpenElectionModal={() => setIsElectionModalOpen(true)}
+        onOpenGitHub={() => setIsGitHubOpen(true)}
+        currentDistrictName={currentDistrictName}
+        isPrezident={isPrezident}
         lastSavedText={lastSavedText}
       />
 
@@ -327,11 +607,19 @@ export default function App() {
         {/* 2. Xususiyatlar (Features Section: Uylar, Aholi, Instagram Niklari, 4 AI Agent) */}
         <FeaturesSection onScrollToGame={scrollToGame} />
 
-        {/* Interaktiv Shahar Qurish O'yini Prototipi */}
+        {/* Interaktiv 3D Shahar Qurish O'yini */}
         <CityBuilder
           isHokimGodMode={isHokimGodMode}
           onToggleHokimGodMode={handleToggleHokimGodMode}
           onOpenMayorDashboard={scrollToDashboard}
+          onOpenPhoneWidgets={() => setIsPhoneWidgetsOpen(true)}
+          currentDistrictId={currentDistrictId}
+          currentDistrictName={currentDistrictName}
+          currentRegionName={currentRegionName}
+          playerInstagram={playerInstagram}
+          isPrezident={isPrezident}
+          onOpenElectionModal={() => setIsElectionModalOpen(true)}
+          onSelectDistrict={handleSelectDistrict}
           cells={cells}
           setCells={setCells}
           budget={budget}
@@ -356,7 +644,7 @@ export default function App() {
           onLogAction={handleLogAction}
         />
 
-        {/* Hokimiyat Tizimli Nazorat Paneli (4 AI Agent, KPI, Farmoyishlar, Instagram Fuqarolari, Tarix) */}
+        {/* Prezidentlik Oliy Nazorat Paneli (v1.2) */}
         <MayorDashboard
           isHokimGodMode={isHokimGodMode}
           onToggleHokimGodMode={handleToggleHokimGodMode}
@@ -370,9 +658,22 @@ export default function App() {
           actionLog={actionLog}
           lastSavedText={lastSavedText}
           onLogAction={handleLogAction}
+          currentDistrictId={currentDistrictId}
+          currentDistrictName={currentDistrictName}
+          onSelectDistrict={handleSelectDistrict}
+          isPrezident={isPrezident}
+          population={population}
+          budget={budget}
+          nationalJobs={nationalJobs}
+          onUpdateNationalJobs={(updated) => {
+            setNationalJobs(updated);
+            triggerSaveNow({ nationalJobs: updated });
+          }}
+          onOpenGitHubModal={() => setIsGitHubOpen(true)}
+          onOpenElectionModal={() => setIsElectionModalOpen(true)}
         />
 
-        {/* 3. O'yin Galereyasi (3D Skyscraper & Cyber Visuals) */}
+        {/* 3. O'yin Galereyasi (3D Skyscraper, Burj Khalifa & Cyber Visuals) */}
         <GallerySection />
       </main>
 
@@ -380,6 +681,22 @@ export default function App() {
       <Footer
         onOpenContact={() => setIsContactOpen(true)}
         onScrollToGame={scrollToGame}
+      />
+
+      {/* Uzbekistan Election & President Center Modal */}
+      <UzbekistanElectionModal
+        isOpen={isElectionModalOpen}
+        onClose={() => setIsElectionModalOpen(false)}
+        currentDistrictId={currentDistrictId}
+        onSelectDistrict={handleSelectDistrict}
+        playerInstagram={playerInstagram}
+        onUpdatePlayerInstagram={handleUpdatePlayerInstagram}
+        isPrezident={isPrezident}
+        onTogglePrezident={handleTogglePrezident}
+        electionState={activeElectionState}
+        onVote={handleVote}
+        onRegisterCandidate={handleRegisterCandidate}
+        onPresidentialDecree={handlePresidentialDecree}
       />
 
       {/* Modals */}
@@ -392,7 +709,28 @@ export default function App() {
         isOpen={isDownloadOpen}
         onClose={() => setIsDownloadOpen(false)}
         onPlayInBrowser={scrollToGame}
+        onOpenGitHub={() => setIsGitHubOpen(true)}
       />
+
+      <GitHubModal
+        isOpen={isGitHubOpen}
+        onClose={() => setIsGitHubOpen(false)}
+      />
+
+      <PhoneWidgetsModal
+        isOpen={isPhoneWidgetsOpen}
+        onClose={() => setIsPhoneWidgetsOpen(false)}
+        population={population}
+        budget={budget}
+        happiness={happiness}
+        hasBurjKhalifa={hasBurjKhalifa}
+        citizens={citizens}
+        onInjectFunds={handleInjectFunds}
+        onTriggerFestival={handleTriggerFestival}
+      />
+
+      {/* PWA Offline status indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

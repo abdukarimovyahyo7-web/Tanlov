@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Play, Sparkles, ShieldCheck, Users, Building, Cpu, Instagram } from 'lucide-react';
+import { Download, Play, Sparkles, ShieldCheck, Users, Building, Cpu, Instagram, Crown, Smartphone } from 'lucide-react';
 import { sound } from '../utils/audio.ts';
 
 interface HeroSectionProps {
@@ -21,23 +21,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onPlayClick, onDownloa
         <div className="text-center max-w-4xl mx-auto">
           {/* Futuristic Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono uppercase tracking-wider mb-6 shadow-[0_0_15px_rgba(6,182,212,0.2)]">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-spin" style={{ animationDuration: '6s' }} />
-            <span>Futuristik 3D Shaharsozlik • Tanlov Mahallasi 2026</span>
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Versiya 1.2 • To'liq 3D Dvijok & Telefon Vidjetlari</span>
           </div>
 
           {/* Main Title */}
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white font-['Space_Grotesk'] leading-[1.1]">
             Kelajak Shahringizni{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-sky-300 to-purple-500">
-              O'zingiz Boshqaring
+              3D Formatda Yaratildi
             </span>
           </h1>
 
           {/* Subtitle */}
           <p className="mt-6 text-base sm:text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
-            <strong className="text-cyan-300 font-semibold">«Tanlov Mahallasi»</strong> — mobil telefonlar va brauzerlar uchun 
-            mo'ljallangan zamonaviy 3D shahar qurish o'yini. Osmono'par binolar barpo eting, Instagram do'stlaringizni fuqaro qilib taklif eting, 
-            4 ta AI agent maslahatidan foydalaning va shahar Hokimi sifatida mutlaq hokimiyatni his qiling!
+            <strong className="text-cyan-300 font-semibold">«Tanlov Mahallasi v1.2»</strong> — O‘zbekistonning barcha 14 ta hududi (Xo‘jayli, Taxiatosh, Yangiyo‘l), 
+            <strong className="text-amber-300"> eng baland $1 lik Burj Khalifa</strong>, Prezident Yordamchisi <strong className="text-cyan-300">Adiz Rajabov</strong>, aholi uchun Milliy Ishlar va ochiq GitHub manba kodlari!
           </p>
 
           {/* CTAs */}
@@ -50,8 +49,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onPlayClick, onDownloa
               className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 via-sky-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm sm:text-base shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2.5 transition active:scale-95 group border border-cyan-400/30"
             >
               <Download className="w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
-              <span>O'yinni yuklab olish</span>
-              <span className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded font-mono">APK / PWA</span>
+              <span>O'yinni yuklab olish (APK)</span>
+              <span className="text-[10px] bg-black/25 px-1.5 py-0.5 rounded font-mono">v1.2</span>
             </button>
 
             <button
@@ -62,42 +61,46 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onPlayClick, onDownloa
               className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-[#0e1324] hover:bg-[#161f38] text-cyan-300 font-semibold text-sm sm:text-base border border-purple-500/40 hover:border-cyan-400 shadow-md shadow-purple-900/20 flex items-center justify-center gap-2.5 transition active:scale-95 group"
             >
               <Play className="w-4 h-4 fill-cyan-400 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <span>Brauzerda bepul o'ynash</span>
+              <span>Real 3D dvijokda o'ynash</span>
             </button>
           </div>
 
           {/* Social Proof & Quick Highlights */}
           <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-            <div className="p-4 rounded-xl bg-gray-900/40 border border-cyan-500/15 backdrop-blur-sm">
+            {/* Highlight 1: Burj Khalifa */}
+            <div className="p-4 rounded-xl bg-gray-900/40 border border-amber-500/30 backdrop-blur-sm">
+              <div className="flex items-center justify-center gap-2 text-amber-400 mb-1">
+                <Crown className="w-4 h-4" />
+                <span className="text-xl sm:text-2xl font-bold font-mono">$1</span>
+              </div>
+              <p className="text-xs text-amber-200 font-bold">Burj Khalifa ($1 Eng Baland)</p>
+            </div>
+
+            {/* Highlight 2: Real 3D */}
+            <div className="p-4 rounded-xl bg-gray-900/40 border border-cyan-500/30 backdrop-blur-sm">
               <div className="flex items-center justify-center gap-2 text-cyan-400 mb-1">
-                <Users className="w-4 h-4" />
-                <span className="text-xl sm:text-2xl font-bold font-mono">120K+</span>
-              </div>
-              <p className="text-xs text-gray-400">Faol fuqarolar</p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-gray-900/40 border border-purple-500/15 backdrop-blur-sm">
-              <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
                 <Building className="w-4 h-4" />
-                <span className="text-xl sm:text-2xl font-bold font-mono">100 Qavat</span>
+                <span className="text-xl sm:text-2xl font-bold font-mono">Real 3D</span>
               </div>
-              <p className="text-xs text-gray-400">Maksimal osmono'par</p>
+              <p className="text-xs text-gray-300">200+ Shahar & Tumanlar</p>
             </div>
 
-            <div className="p-4 rounded-xl bg-gray-900/40 border border-sky-500/15 backdrop-blur-sm">
-              <div className="flex items-center justify-center gap-2 text-sky-400 mb-1">
-                <Cpu className="w-4 h-4" />
-                <span className="text-xl sm:text-2xl font-bold font-mono">4 AI Agent</span>
+            {/* Highlight 3: Milliy Ishlar */}
+            <div className="p-4 rounded-xl bg-gray-900/40 border border-emerald-500/30 backdrop-blur-sm">
+              <div className="flex items-center justify-center gap-2 text-emerald-400 mb-1">
+                <Sparkles className="w-4 h-4" />
+                <span className="text-xl sm:text-2xl font-bold font-mono">Milliy Ishlar</span>
               </div>
-              <p className="text-xs text-gray-400">Arxitektor, Usta, Yordamchi</p>
+              <p className="text-xs text-emerald-300">Kulolchilik, Zardo‘zlik, Non</p>
             </div>
 
-            <div className="p-4 rounded-xl bg-gray-900/40 border border-pink-500/15 backdrop-blur-sm">
-              <div className="flex items-center justify-center gap-2 text-pink-400 mb-1">
-                <Instagram className="w-4 h-4" />
-                <span className="text-xl sm:text-2xl font-bold font-mono">@niklar</span>
+            {/* Highlight 4: Prezident Yordamchisi */}
+            <div className="p-4 rounded-xl bg-gray-900/40 border border-purple-500/30 backdrop-blur-sm">
+              <div className="flex items-center justify-center gap-2 text-purple-400 mb-1">
+                <Crown className="w-4 h-4" />
+                <span className="text-base sm:text-lg font-bold font-mono">Adiz Rajabov</span>
               </div>
-              <p className="text-xs text-gray-400">Instagram integratsiyasi</p>
+              <p className="text-xs text-gray-300">Prezident Oliy Yordamchisi</p>
             </div>
           </div>
         </div>

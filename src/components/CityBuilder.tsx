@@ -30,6 +30,12 @@ import {
   Play,
   Pause,
   FastForward,
+  Smartphone,
+  Eye,
+  Rocket,
+  ShoppingBag,
+  Gem,
+  Award,
 } from 'lucide-react';
 import {
   BuildingType,
@@ -38,19 +44,28 @@ import {
   BuildingColorOption,
   calculateBuildingCost,
   calculatePopulationIncrease,
-  calculateIncomePerSecond,
   getUstaExpansionStatus,
   canAfford,
 } from '../game/rules.ts';
 import { GridCell, Citizen } from '../types/game.ts';
 import { sound } from '../utils/audio.ts';
 import { SavedActionLog, SavedGameState } from '../utils/storage.ts';
+import { CityCanvas3D } from './CityCanvas3D.tsx';
+import { UZBEKISTAN_REGIONS } from '../data/uzbekistanRegions.ts';
 
 interface CityBuilderProps {
   isHokimGodMode: boolean;
   onToggleHokimGodMode: () => void;
   onOpenMayorDashboard: () => void;
+  onOpenPhoneWidgets?: () => void;
   onAssignInstagramGlobal?: (instagram: string) => void;
+  currentDistrictId?: string;
+  currentDistrictName?: string;
+  currentRegionName?: string;
+  playerInstagram?: string;
+  isPrezident?: boolean;
+  onOpenElectionModal?: () => void;
+  onSelectDistrict?: (districtId: string) => void;
   // Persistent state from App
   cells: Map<string, GridCell>;
   setCells: React.Dispatch<React.SetStateAction<Map<string, GridCell>>>;
@@ -80,6 +95,14 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
   isHokimGodMode,
   onToggleHokimGodMode,
   onOpenMayorDashboard,
+  onOpenPhoneWidgets,
+  currentDistrictId,
+  currentDistrictName,
+  currentRegionName,
+  playerInstagram,
+  isPrezident,
+  onOpenElectionModal,
+  onSelectDistrict,
   cells,
   setCells,
   budget,
@@ -108,9 +131,10 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
   const [selectedFloors, setSelectedFloors] = useState<SkyscraperFloors>(1);
   const [selectedColor, setSelectedColor] = useState<BuildingColorOption>(BUILDING_COLORS[0]);
 
-  // Selected cell for inspecting & instagram editing
+  // Selected cell for inspecting & instagram/name editing
   const [inspectCell, setInspectCell] = useState<GridCell | null>(null);
   const [editInstagramInput, setEditInstagramInput] = useState<string>('');
+  const [editNameInput, setEditNameInput] = useState<string>('');
 
   // Notification / banner
   const [bannerMessage, setBannerMessage] = useState<{ text: string; type: 'success' | 'warn' | 'expansion' } | null>(null);
@@ -123,26 +147,18 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
     let trees = 0;
 
     cells.forEach(cell => {
-      if (cell.type === 'residential_simple') newPop += calculatePopulationIncrease('residential_simple');
-      else if (cell.type === 'business') {
-        newPop += calculatePopulationIncrease('business');
-        businesses += 1;
-      } else if (cell.type === 'skyscraper') {
-        newPop += calculatePopulationIncrease('skyscraper', cell.floors || 1);
-      } else if (cell.type === 'park') {
-        newPop += calculatePopulationIncrease('park');
-        parks += 1;
-      } else if (cell.type === 'tree') {
-        trees += 1;
-      }
+      newPop += calculatePopulationIncrease(cell.type as BuildingType, cell.floors || 1);
+      if (cell.type === 'business' || cell.type === 'megamall') businesses += 1;
+      else if (cell.type === 'park') parks += 1;
+      else if (cell.type === 'tree') trees += 1;
     });
 
     setPopulation(newPop);
 
-    // Calculate happiness based on eco balance (parks & trees) vs density
+    // Calculate happiness based on eco balance vs density
     const totalEco = trees + parks * 3;
-    const baseHappy = 80;
-    const ecoBonus = Math.min(20, totalEco * 3);
+    const baseHappy = 82;
+    const ecoBonus = Math.min(18, totalEco * 2);
     setHappiness(Math.min(100, Math.max(40, baseHappy + ecoBonus)));
   }, [cells]);
 
@@ -160,10 +176,10 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
       });
       try {
         confetti({
-          particleCount: 50,
-          spread: 70,
+          particleCount: 60,
+          spread: 75,
           origin: { y: 0.6 },
-          colors: ['#00f0ff', '#b026ff', '#ffb703'],
+          colors: ['#00f0ff', '#b026ff', '#ffd700'],
         });
       } catch {
         // ignore
@@ -173,71 +189,92 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
   }, [expansionStatus, population, gridSize]);
 
   // Calculate current action cost
-  const currentActionCost = selectedTool === 'demolish' || selectedTool === 'inspect'
-    ? 0
-    : calculateBuildingCost({
-        type: selectedTool,
-        floors: selectedTool === 'skyscraper' ? selectedFloors : undefined,
-        colorId: selectedColor.id,
-        isHokimGodMode,
-      });
+  const currentActionCost =
+    selectedTool === 'demolish' || selectedTool === 'inspect'
+      ? 0
+      : calculateBuildingCost({
+          type: selectedTool,
+          floors: selectedTool === 'skyscraper' ? selectedFloors : undefined,
+          colorId: selectedColor.id,
+          isHokimGodMode,
+        });
 
-  // Handle cell click
+  // Handle cell click (Build, Demolish, Inspect)
   const handleCellClick = (x: number, y: number) => {
-    sound.playClick();
     const key = `${x},${y}`;
     const existing = cells.get(key);
 
-    // If inspect mode or cell has building and user clicked inspect
+    // Mode 1: Inspect
     if (selectedTool === 'inspect') {
+      sound.playClick();
       if (existing) {
         setInspectCell(existing);
         setEditInstagramInput(existing.instagram || '');
+        setEditNameInput(existing.customName || existing.name || '');
       } else {
-        setInspectCell(null);
+        setBannerMessage({ text: `(${x}, ${y}) katak bo'sh. Uy qurish uchun menyudan tanlang.`, type: 'warn' });
       }
       return;
     }
 
-    // Demolish tool
+    // Mode 2: Demolish
     if (selectedTool === 'demolish') {
-      if (existing) {
-        sound.playDemolish();
-        const next = new Map(cells);
-        next.delete(key);
-        setCells(next);
-        setBannerMessage({ text: `Bino buzildi (${x}, ${y})`, type: 'warn' });
-        if (onLogAction) {
-          onLogAction(`Maydon (${x}, ${y}) dagi ${existing.name || 'bino'} buzildi`, 'demolish');
-        }
-        triggerSaveNow({ cells: Array.from(next.entries()) });
-        if (inspectCell?.x === x && inspectCell?.y === y) {
-          setInspectCell(null);
-        }
+      if (!existing) return;
+      sound.playDemolish();
+      const next = new Map(cells);
+      next.delete(key);
+      setCells(next);
+      setBannerMessage({ text: `Bino buzildi (${x}, ${y})`, type: 'warn' });
+      if (onLogAction) {
+        onLogAction(`${existing.name || 'Bino'} buzildi (${x}, ${y})`, 'demolish');
       }
+      triggerSaveNow({ cells: Array.from(next.entries()) });
       return;
     }
 
-    // Building tool
+    // Mode 3: Construction
     const cost = currentActionCost;
+
     if (!canAfford(budget, cost, isHokimGodMode)) {
-      setBannerMessage({ text: `Mablag' yetarli emas! Sizga $${cost} kerak.`, type: 'warn' });
+      sound.playClick();
+      setBannerMessage({
+        text: `Mablag' yetarli emas! Sizga $${cost} kerak, byudjetingiz: $${budget}. Hokimiyat God-rejimini yoqing yoki shahar daromadini kuting.`,
+        type: 'warn',
+      });
       return;
     }
 
-    // Deduct cost if not God Mode
-    const newBudget = isHokimGodMode ? budget : Math.max(0, budget - cost);
+    // Deduct cost if not in Hokim God Mode
+    let newBudget = budget;
     if (!isHokimGodMode) {
+      newBudget = Math.round((budget - cost) * 10) / 10;
       setBudget(newBudget);
     }
 
+    // Play sounds & special celebration for Burj Khalifa or 100-floor Skyscraper
     sound.playBuild();
-    if (selectedTool === 'skyscraper' && selectedFloors === 100) {
+    if (selectedTool === 'burj_khalifa') {
       sound.playExpansion();
       try {
         confetti({
-          particleCount: 40,
-          spread: 60,
+          particleCount: 100,
+          spread: 90,
+          origin: { y: 0.4 },
+          colors: ['#ffd700', '#00f0ff', '#ffffff', '#ff0055'],
+        });
+      } catch {
+        // ignore
+      }
+      setBannerMessage({
+        text: `🏆 Shahardagi eng baland bino: 1$ lik Burj Khalifa minorasi barpo etildi! Dunyo mo'jizasi!`,
+        type: 'expansion',
+      });
+    } else if (selectedTool === 'skyscraper' && selectedFloors === 100) {
+      sound.playExpansion();
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 70,
           origin: { y: 0.5 },
           colors: ['#00f0ff', '#ffffff', '#ffd700'],
         });
@@ -246,6 +283,35 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
       }
     }
 
+    const defaultInsta =
+      existing?.instagram ||
+      (['residential_simple', 'business', 'skyscraper', 'burj_khalifa', 'cyber_villa', 'megamall', 'spaceport'].includes(
+        selectedTool
+      )
+        ? '@fuqaro_' + Math.floor(100 + Math.random() * 900)
+        : undefined);
+
+    const defaultName =
+      selectedTool === 'burj_khalifa'
+        ? 'Burj Khalifa ($1 Eng baland minora)'
+        : selectedTool === 'residential_simple'
+        ? 'Oddiy Uy'
+        : selectedTool === 'business'
+        ? 'Biznes Binosi'
+        : selectedTool === 'skyscraper'
+        ? `${selectedFloors} Qavatli Osmono'par`
+        : selectedTool === 'cyber_villa'
+        ? 'Kiber Villa'
+        : selectedTool === 'megamall'
+        ? 'Savdo Majmuasi (Mall)'
+        : selectedTool === 'spaceport'
+        ? 'Kosmodrom'
+        : selectedTool === 'tree'
+        ? 'Kiber Daraxt'
+        : selectedTool === 'park'
+        ? 'Favvora va Park'
+        : "Yo'l";
+
     const next = new Map(cells);
     const newCell: GridCell = {
       x,
@@ -253,19 +319,9 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
       type: selectedTool,
       floors: selectedTool === 'skyscraper' ? selectedFloors : undefined,
       colorId: selectedColor.id,
-      name:
-        selectedTool === 'residential_simple'
-          ? 'Oddiy Uy'
-          : selectedTool === 'business'
-          ? 'Biznes Binosi'
-          : selectedTool === 'skyscraper'
-          ? `${selectedFloors} Qavatli Osmono'par`
-          : selectedTool === 'tree'
-          ? 'Kiber Daraxt'
-          : selectedTool === 'park'
-          ? 'Favvora va Park'
-          : 'Yo\'l',
-      instagram: existing?.instagram || (['residential_simple', 'business', 'skyscraper'].includes(selectedTool) ? '@fuqaro_' + Math.floor(100 + Math.random() * 900) : undefined),
+      name: defaultName,
+      customName: defaultName,
+      instagram: defaultInsta,
       createdAt: Date.now(),
     };
     next.set(key, newCell);
@@ -305,22 +361,33 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
     }
   };
 
-  // Save Instagram update on cell
-  const handleSaveInstagram = () => {
+  // Save Instagram and Custom Name from inspector
+  const handleSaveInspectDetails = () => {
     if (!inspectCell) return;
     sound.playClick();
     const key = `${inspectCell.x},${inspectCell.y}`;
     const next = new Map(cells);
     const updated = {
       ...inspectCell,
-      instagram: editInstagramInput.startsWith('@') ? editInstagramInput : `@${editInstagramInput}`,
+      instagram: editInstagramInput
+        ? editInstagramInput.startsWith('@')
+          ? editInstagramInput
+          : `@${editInstagramInput}`
+        : inspectCell.instagram,
+      customName: editNameInput.trim() || inspectCell.name,
     };
     next.set(key, updated);
     setCells(next);
     setInspectCell(updated);
-    setBannerMessage({ text: `Instagram niki saqlandi: ${updated.instagram}`, type: 'success' });
+    setBannerMessage({
+      text: `Bino ma'lumotlari saqlandi: «${updated.customName}» (${updated.instagram})`,
+      type: 'success',
+    });
     if (onLogAction) {
-      onLogAction(`Bino (${inspectCell.x}, ${inspectCell.y}) ga Instagram: ${updated.instagram} biriktirildi`, 'instagram');
+      onLogAction(
+        `Bino (${inspectCell.x}, ${inspectCell.y}): «${updated.customName}» ga ${updated.instagram} biriktirildi`,
+        'instagram'
+      );
     }
     triggerSaveNow({ cells: Array.from(next.entries()) });
   };
@@ -331,35 +398,31 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
     const next = new Map(cells);
     let count = 0;
     next.forEach((cell, key) => {
-      if (['residential_simple', 'business', 'skyscraper'].includes(cell.type)) {
-        cell.colorId = agent === 'sardor' ? 'neon_cyan' : 'royal_purple';
+      if (['residential_simple', 'business', 'skyscraper', 'burj_khalifa', 'cyber_villa', 'megamall'].includes(cell.type)) {
+        cell.colorId = agent === 'sardor' ? 'krypton_cyan' : 'galaxy_purple';
         next.set(key, cell);
         count++;
       }
     });
     setCells(next);
     setBannerMessage({
-      text: agent === 'sardor'
-        ? `Arxitektor Sardor: ${count} ta bino fasadiga futuristik Kiber Moviy neon berildi!`
-        : `Dizayner Laylo: ${count} ta bino fasadiga zamonaviy Qirol Binafshasi uyg'unligi berildi!`,
+      text:
+        agent === 'sardor'
+          ? `Arxitektor Sardor: ${count} ta bino fasadiga futuristik Kripton Moviy neon berildi!`
+          : `Dizayner Laylo: ${count} ta bino fasadiga zamonaviy Galaktika Qirol Binafshasi berildi!`,
       type: 'success',
     });
     if (onLogAction) {
       onLogAction(
-        `${agent === 'sardor' ? 'Arxitektor Sardor' : 'Dizayner Laylo'} ${count} ta bino fasadini kiber rangda yangiladi`,
+        `${agent === 'sardor' ? 'Arxitektor Sardor' : 'Dizayner Laylo'} ${count} ta bino fasadini yangiladi`,
         'color'
       );
     }
     triggerSaveNow({ cells: Array.from(next.entries()) });
   };
 
-  // Generate grid array
-  const gridRows = Array.from({ length: gridSize }, (_, y) =>
-    Array.from({ length: gridSize }, (_, x) => ({ x, y }))
-  );
-
   return (
-    <section id="game-section" className="py-12 relative overflow-hidden bg-[#070913]">
+    <section id="game-section" className="py-10 relative overflow-hidden bg-[#070913]">
       {/* Background radial gradient */}
       <div className="absolute inset-0 pointer-events-none opacity-40">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-gradient-to-tr from-cyan-900/20 via-purple-900/20 to-blue-900/10 rounded-full blur-[160px]" />
@@ -371,31 +434,18 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
           <div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 text-xs font-mono uppercase mb-2">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Interaktiv 3D Prototip • Tanlov Mahallasi</span>
+              <span>Real 3D Dvijok • Tanlov Mahallasi v1.2 Next-Gen</span>
             </div>
             <h2 className="text-2xl sm:text-4xl font-extrabold text-white font-['Space_Grotesk']">
-              Shaharsozlik <span className="text-cyan-400">Maydoni</span>
+              3D Shaharsozlik <span className="text-cyan-400">Maydoni</span>
             </h2>
             <p className="text-gray-400 text-xs sm:text-sm mt-1">
-              Maydonga bosing, uylarni quring, aholini ko'paytiring va Instagram niklarini biriktiring.
+              Haqiqiy 3D uylar, 2.000.000.000$ lik Burj Khalifa, 24K Oltin ranglar va Instagram nomlari!
             </p>
           </div>
 
           {/* Quick HUD controls */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* View Mode Toggle (3D Isometric vs 2D Flat) */}
-            <button
-              onClick={() => {
-                sound.playClick();
-                setIsometric3D(!isometric3D);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-gray-900/80 border border-cyan-500/30 text-cyan-300 text-xs font-mono flex items-center gap-1.5 hover:bg-cyan-500/20 transition"
-              title="3D Izometrik / 2D Ko'rinish"
-            >
-              <Compass className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{isometric3D ? '3D Izometrik' : '2D Tekis'}</span>
-            </button>
-
             {/* Time of Day */}
             <div className="flex items-center bg-gray-900/80 border border-gray-700/60 rounded-lg p-0.5">
               <button
@@ -455,12 +505,27 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
               </button>
             </div>
 
+            {/* Phone Widgets Button */}
+            {onOpenPhoneWidgets && (
+              <button
+                onClick={() => {
+                  sound.playClick();
+                  onOpenPhoneWidgets();
+                }}
+                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-900/80 to-indigo-900/80 border border-purple-500/50 text-purple-300 hover:text-white text-xs font-bold font-mono flex items-center gap-1.5 shadow-md shadow-purple-950/40 transition active:scale-95"
+                title="Telefon ish stoli va vidjetlarini sozlash"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-purple-400" />
+                <span>Vidjetlar</span>
+              </button>
+            )}
+
             {/* Auto-save status badge */}
             <div
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-mono shadow-[0_0_10px_rgba(16,185,129,0.15)]"
               title="Har bir harakat va har soniya avtomatik saqlanadi"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
               <span className="hidden sm:inline">Har soniya:</span>
               <span className="text-white font-bold">{lastSavedText || 'Saqlanmoqda'}</span>
             </div>
@@ -493,27 +558,14 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
           </div>
         </div>
 
-        {/* TOP STATUS BAR (Aholi soni, Mablag', Daromad, Baxt darajasi, Maydon) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 mb-6">
-          {/* Mablag' / Budget */}
-          <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-amber-500/30 flex items-center justify-between shadow-lg shadow-amber-950/20">
-            <div>
-              <p className="text-[10px] uppercase font-mono text-gray-400">Mablag' (PUL)</p>
-              <p className="text-lg sm:text-xl font-bold font-mono text-amber-300 flex items-center gap-1">
-                <span>{isHokimGodMode ? '∞ CHEKSIZ' : `$${budget.toLocaleString()}`}</span>
-              </p>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-              <Coins className="w-4 h-4" />
-            </div>
-          </div>
-
-          {/* Aholi Soni */}
+        {/* Live Top Statistics Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          {/* Aholi */}
           <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-cyan-500/30 flex items-center justify-between shadow-lg shadow-cyan-950/20">
             <div>
               <p className="text-[10px] uppercase font-mono text-gray-400">Aholi Soni</p>
-              <p className="text-lg sm:text-xl font-bold font-mono text-cyan-300">
-                {population.toLocaleString()} <span className="text-xs font-normal text-cyan-400/80">kishi</span>
+              <p className="text-lg sm:text-2xl font-bold font-mono text-cyan-300">
+                {population.toLocaleString()} <span className="text-xs font-normal text-cyan-500">kishi</span>
               </p>
             </div>
             <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
@@ -521,30 +573,25 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
             </div>
           </div>
 
-          {/* Daromad/sekund */}
-          <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-emerald-500/30 flex items-center justify-between shadow-lg shadow-emerald-950/20">
+          {/* Mablag' / G'azna */}
+          <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-amber-500/30 flex items-center justify-between shadow-lg shadow-amber-950/20">
             <div>
-              <p className="text-[10px] uppercase font-mono text-gray-400">Soliq Tushumi</p>
-              <p className="text-lg sm:text-xl font-bold font-mono text-emerald-400">
-                +${calculateIncomePerSecond(
-                  Array.from(cells.values()).filter(c => c.type === 'business').length,
-                  population,
-                  taxRate,
-                  happiness
-                )}<span className="text-xs font-normal text-emerald-500/80">/sek</span>
+              <p className="text-[10px] uppercase font-mono text-gray-400">Mablag' (PUL)</p>
+              <p className="text-lg sm:text-2xl font-bold font-mono text-amber-300">
+                ${budget.toLocaleString()}
               </p>
             </div>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <Zap className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <Coins className="w-4 h-4" />
             </div>
           </div>
 
-          {/* Baxt Darajasi */}
+          {/* Shahar Kayfiyati */}
           <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-purple-500/30 flex items-center justify-between shadow-lg shadow-purple-950/20">
             <div>
-              <p className="text-[10px] uppercase font-mono text-gray-400">Baxt Darajasi</p>
-              <p className="text-lg sm:text-xl font-bold font-mono text-purple-300">
-                {happiness}% <span className="text-xs">😊</span>
+              <p className="text-[10px] uppercase font-mono text-gray-400">Aholi Kayfiyati</p>
+              <p className="text-lg sm:text-2xl font-bold font-mono text-purple-300">
+                {happiness}% <span className="text-xs font-normal text-purple-400/80">ijobiy</span>
               </p>
             </div>
             <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
@@ -556,7 +603,7 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
           <div className="p-3 rounded-xl bg-gradient-to-br from-gray-900/90 to-gray-950 border border-blue-500/30 flex items-center justify-between shadow-lg shadow-blue-950/20">
             <div>
               <p className="text-[10px] uppercase font-mono text-gray-400">Usta Maydoni</p>
-              <p className="text-lg sm:text-xl font-bold font-mono text-blue-300">
+              <p className="text-lg sm:text-2xl font-bold font-mono text-blue-300">
                 {gridSize}x{gridSize} <span className="text-xs font-normal text-blue-400/80">kvadrat</span>
               </p>
             </div>
@@ -568,25 +615,6 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Hokimiyat Boshqaruv Markazi Link */}
-          <button
-            onClick={() => {
-              sound.playClick();
-              onOpenMayorDashboard();
-            }}
-            className="p-3 rounded-xl bg-gradient-to-br from-purple-900/40 to-cyan-900/30 border border-cyan-400/40 hover:border-cyan-300 flex items-center justify-between shadow-lg shadow-cyan-950/30 group transition text-left"
-          >
-            <div>
-              <p className="text-[10px] uppercase font-mono text-cyan-300 group-hover:text-white">Tizimli Nazorat</p>
-              <p className="text-sm font-bold text-white flex items-center gap-1">
-                <span>Hokimiyat Paneli</span>
-              </p>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300 group-hover:scale-110 transition-transform">
-              <Crown className="w-4 h-4" />
-            </div>
-          </button>
         </div>
 
         {/* Banner Notification if any */}
@@ -613,300 +641,290 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
           </div>
         )}
 
-        {/* MAIN GAME INTERACTION AREA (Center Grid + Right Toolbar) */}
+        {/* UZBEKISTAN REGIONS & ELECTIONS PROMINENT BANNER WITH DIRECT SWITCHER */}
+        <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-emerald-950/70 via-[#0a1424] to-purple-950/70 border border-emerald-500/50 flex flex-col gap-3 shadow-xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-400/60 flex items-center justify-center text-emerald-300 font-bold shrink-0 text-xl shadow-lg">
+                🇺🇿
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm sm:text-base font-bold text-white font-['Chakra_Petch'] flex items-center gap-1.5">
+                    <span>📍 {currentRegionName ? `${currentRegionName} • ` : ''}{currentDistrictName || 'Chilonzor tumani'}</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">(Google Maps Rasmiy)</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold">
+                    🌿 Yashil Maysali Tuproq • 360° 3D
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 mt-0.5">
+                  O'zbekistonning barcha 14 ta hudud va tumanlari • Har oy Hokim saylovi • 15 kunlik Yordamchi saylovi (16-kuni yangi saylov!)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start md:self-center shrink-0 flex-wrap">
+              {playerInstagram && (
+                <span className="text-xs font-mono text-pink-400 bg-pink-950/60 border border-pink-500/40 px-2.5 py-1 rounded-lg">
+                  {playerInstagram.startsWith('@') ? playerInstagram : `@${playerInstagram}`}
+                </span>
+              )}
+              {onOpenElectionModal && (
+                <button
+                  onClick={() => {
+                    sound.playClick();
+                    onOpenElectionModal();
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-black font-extrabold text-xs font-mono flex items-center gap-1.5 shadow-md shadow-emerald-950/60 transition active:scale-95"
+                >
+                  <Crown className="w-4 h-4" />
+                  <span>{isPrezident ? '👑 Prezident & Saylov Devoni' : 'Saylov & Nomzodlar'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* INSTANT REGION & DISTRICT QUICK SWITCHER BAR */}
+          {onSelectDistrict && (
+            <div className="pt-2 border-t border-gray-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 text-xs">
+              <span className="text-[11px] font-mono text-cyan-300 uppercase tracking-wider font-bold shrink-0 flex items-center gap-1">
+                <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Hududni Tanlash:</span>
+              </span>
+
+              {/* Combined Fast Selector across all Uzbekistan Districts */}
+              <select
+                value={currentDistrictId || 'chilonzor'}
+                onChange={e => {
+                  sound.playClick();
+                  onSelectDistrict(e.target.value);
+                }}
+                className="flex-1 bg-gray-950 border border-cyan-500/40 text-cyan-200 rounded-xl px-3 py-1.5 font-mono text-xs outline-none focus:border-cyan-400 cursor-pointer shadow-inner"
+              >
+                {UZBEKISTAN_REGIONS.map(reg => (
+                  <optgroup key={reg.id} label={`--- ${reg.name} ---`}>
+                    {reg.districts.map(dist => (
+                      <option key={dist.id} value={dist.id}>
+                        {reg.name}: {dist.name} (~{(dist.populationEstimate / 1000).toFixed(0)}k aholi)
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+
+              {/* Quick Jump Buttons for Key Historic Cities */}
+              <div className="hidden lg:flex items-center gap-1 text-[11px] font-mono">
+                <button
+                  onClick={() => onSelectDistrict('samarkand_city')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'samarkand_city'
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold'
+                      : 'bg-gray-900/80 text-gray-300 border-gray-700 hover:border-cyan-400'
+                  }`}
+                  title="Samarqand shahriga o'tish"
+                >
+                  Samarqand
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('bukhara_city')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'bukhara_city'
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold'
+                      : 'bg-gray-900/80 text-gray-300 border-gray-700 hover:border-cyan-400'
+                  }`}
+                  title="Buxoro shahriga o'tish"
+                >
+                  Buxoro
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('qoqon')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'qoqon'
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold'
+                      : 'bg-gray-900/80 text-gray-300 border-gray-700 hover:border-cyan-400'
+                  }`}
+                  title="Qo'qon shahriga o'tish"
+                >
+                  Qo'qon
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('xiva_city')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'xiva_city'
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold'
+                      : 'bg-gray-900/80 text-gray-300 border-gray-700 hover:border-cyan-400'
+                  }`}
+                  title="Xiva shahriga o'tish"
+                >
+                  Xiva
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('nukus_city')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'nukus_city'
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold'
+                      : 'bg-gray-900/80 text-gray-300 border-gray-700 hover:border-cyan-400'
+                  }`}
+                  title="Nukus shahriga o'tish"
+                >
+                  Nukus
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('xojayli_city')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'xojayli_city'
+                      ? 'bg-amber-500 text-black border-amber-400 font-bold'
+                      : 'bg-amber-950/60 text-amber-300 border-amber-600/40 hover:border-amber-400'
+                  }`}
+                  title="Xo‘jayli shahriga o'tish"
+                >
+                  ⭐ Xo‘jayli
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('taxiatosh')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'taxiatosh'
+                      ? 'bg-amber-500 text-black border-amber-400 font-bold'
+                      : 'bg-amber-950/60 text-amber-300 border-amber-600/40 hover:border-amber-400'
+                  }`}
+                  title="Taxiatosh tumaniga o'tish"
+                >
+                  ⭐ Taxiatosh
+                </button>
+                <button
+                  onClick={() => onSelectDistrict('yangiyol')}
+                  className={`px-2 py-1 rounded-lg border transition ${
+                    currentDistrictId === 'yangiyol'
+                      ? 'bg-amber-500 text-black border-amber-400 font-bold'
+                      : 'bg-amber-950/60 text-amber-300 border-amber-600/40 hover:border-amber-400'
+                  }`}
+                  title="Yangiyo‘l shahriga o'tish"
+                >
+                  ⭐ Yangiyo‘l
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* MAIN GAME INTERACTION AREA: 3D WebGL Canvas + Sidebar Toolbar */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-          {/* CENTER: THE 3D / ISOMETRIC GREEN TERRAIN GRID */}
-          <div className="lg:col-span-3 rounded-2xl bg-[#0b0f1a] border border-cyan-500/20 p-3 sm:p-6 shadow-2xl relative min-h-[500px] flex flex-col justify-between overflow-x-auto">
-            {/* Grid Environment Lighting Background */}
-            <div
-              className={`absolute inset-0 rounded-2xl pointer-events-none transition-colors duration-1000 ${
-                timeOfDay === 'day'
-                  ? 'bg-gradient-to-b from-sky-500/10 via-emerald-500/5 to-transparent'
-                  : timeOfDay === 'sunset'
-                  ? 'bg-gradient-to-b from-orange-600/15 via-purple-600/10 to-transparent'
-                  : 'bg-gradient-to-b from-indigo-950/40 via-purple-950/20 to-black/60'
-              }`}
+          {/* CENTER: THE 3D WEBGL ENGINE VIEWPORT */}
+          <div className="lg:col-span-3 space-y-3">
+            {/* Real Three.js Canvas */}
+            <CityCanvas3D
+              cells={cells}
+              gridSize={gridSize}
+              timeOfDay={timeOfDay}
+              selectedTool={selectedTool}
+              selectedFloors={selectedFloors}
+              selectedColorId={selectedColor.id}
+              isHokimGodMode={isHokimGodMode}
+              currentDistrictName={currentDistrictName}
+              currentRegionName={currentRegionName}
+              onCellClick={handleCellClick}
+              onInspectCell={cell => {
+                if (cell) {
+                  setInspectCell(cell);
+                  setEditInstagramInput(cell.instagram || '');
+                  setEditNameInput(cell.customName || cell.name || '');
+                }
+              }}
             />
 
-            {/* Top Toolbar overlay on grid: Selected tool preview & cost */}
-            <div className="relative z-10 flex items-center justify-between gap-2 flex-wrap mb-4 bg-gray-900/70 backdrop-blur-md px-3 py-2 rounded-xl border border-gray-800">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-400 font-mono">Tanlangan uskuna:</span>
-                <span className="font-bold text-white uppercase font-mono px-2 py-0.5 rounded bg-gray-800 border border-gray-700">
-                  {selectedTool === 'residential_simple'
-                    ? 'Oddiy Uy ($30)'
-                    : selectedTool === 'business'
-                    ? 'Biznes Binosi ($60)'
-                    : selectedTool === 'skyscraper'
-                    ? `Osmono'par ${selectedFloors} Qavat ($${selectedFloors === 100 ? 200 : selectedFloors === 20 ? 120 : 20})`
-                    : selectedTool === 'tree'
-                    ? 'Daraxt ($10)'
-                    : selectedTool === 'road'
-                    ? 'Yo\'l ($5)'
-                    : selectedTool === 'park'
-                    ? 'Park / Favvora ($25)'
-                    : selectedTool === 'demolish'
-                    ? 'Buzish / Ekskavator ($0)'
-                    : 'Tekshirish'}
-                </span>
-                {['residential_simple', 'business', 'skyscraper'].includes(selectedTool) && (
-                  <span
-                    className="text-[10px] px-2 py-0.5 rounded font-mono font-bold flex items-center gap-1 border"
-                    style={{
-                      borderColor: selectedColor.hex,
-                      backgroundColor: `${selectedColor.hex}20`,
-                      color: selectedColor.hex,
-                    }}
-                  >
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: selectedColor.hex }} />
-                    {selectedColor.name} (+${selectedColor.price})
-                  </span>
-                )}
+            {/* Quick Agent Auto-Design Row */}
+            <div className="p-3 rounded-xl bg-gray-950/60 border border-gray-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+              <div className="flex items-center gap-2 text-gray-400">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+                <span className="font-mono">AI Dizaynerlar:</span>
               </div>
-
-              <div className="flex items-center gap-3 text-xs font-mono">
-                <span className="text-gray-400">
-                  Narxi: <strong className="text-amber-400 font-bold">{isHokimGodMode ? '$0 (Hokim)' : `$${currentActionCost}`}</strong>
-                </span>
-                {selectedTool !== 'inspect' && (
-                  <button
-                    onClick={() => setSelectedTool('inspect')}
-                    className="text-[11px] text-cyan-400 hover:text-cyan-300 underline"
-                  >
-                    Bino tafsilotlarini ko'rish
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* THE INTERACTIVE CITY GRID (Isometric / Orthogonal with Cyber Styling) */}
-            <div className="flex-1 flex items-center justify-center p-2 sm:p-4 overflow-auto">
-              <div
-                className={`transition-all duration-500 origin-center ${
-                  isometric3D
-                    ? 'transform rotate-x-[55deg] rotate-z-[-40deg] my-4'
-                    : 'transform my-2'
-                }`}
-                style={{
-                  perspective: '1200px',
-                  transformStyle: 'preserve-3d',
-                  transform: isometric3D
-                    ? `rotateX(55deg) rotateZ(-40deg) scale(${
-                        gridSize >= 14 ? 0.72 : gridSize >= 12 ? 0.8 : gridSize >= 10 ? 0.9 : 1
-                      })`
-                    : 'scale(1)',
-                }}
-              >
-                <div
-                  className="grid gap-1 sm:gap-1.5 p-3 rounded-2xl border border-cyan-500/30 shadow-[0_0_50px_rgba(0,240,255,0.15)] transition-colors duration-500"
-                  style={{
-                    gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
-                    backgroundColor:
-                      timeOfDay === 'night'
-                        ? '#091517'
-                        : timeOfDay === 'sunset'
-                        ? '#141724'
-                        : '#0b241b',
-                  }}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleAgentAutoDesign('sardor')}
+                  className="px-3 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/20 font-mono transition"
                 >
-                  {gridRows.map((row, y) =>
-                    row.map(({ x }) => {
-                      const key = `${x},${y}`;
-                      const cell = cells.get(key);
-                      const isOccupied = !!cell;
-                      const cellColor = cell?.colorId ? BUILDING_COLORS.find(c => c.id === cell.colorId) || BUILDING_COLORS[0] : null;
-
-                      return (
-                        <button
-                          key={key}
-                          onClick={() => handleCellClick(x, y)}
-                          className={`${
-                            gridSize >= 14
-                              ? 'w-7 h-7 sm:w-9 sm:h-9'
-                              : gridSize >= 12
-                              ? 'w-8 h-8 sm:w-10 sm:h-10'
-                              : 'w-9 h-9 sm:w-12 sm:h-12'
-                          } rounded-lg relative flex items-center justify-center transition-all duration-200 group active:scale-95 border ${
-                            cell?.type === 'road'
-                              ? 'bg-gray-800/90 border-gray-600/50 shadow-inner'
-                              : isOccupied
-                              ? 'bg-slate-900/90 border-cyan-500/40 shadow-md hover:border-cyan-300'
-                              : 'bg-emerald-950/40 border-emerald-500/20 hover:bg-emerald-900/50 hover:border-cyan-400/60'
-                          }`}
-                          style={{
-                            transformStyle: 'preserve-3d',
-                          }}
-                          title={`Maydon (${x}, ${y}) ${cell ? `- ${cell.name} (${cell.instagram || 'Fuqaro yo\'q'})` : '- Bo\'sh joy'}`}
-                          aria-label={`Cell ${x},${y}`}
-                        >
-                          {/* Empty cell hover guide */}
-                          {!cell && (
-                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Plus className="w-3.5 h-3.5 text-cyan-400/70" />
-                            </div>
-                          )}
-
-                          {/* ROAD */}
-                          {cell?.type === 'road' && (
-                            <div className="w-full h-full flex items-center justify-center relative overflow-hidden">
-                              <div className="w-full h-1 bg-yellow-400/60 shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
-                              {/* Animated passing cyber car light */}
-                              <div className="absolute w-2 h-1 bg-cyan-400 rounded-full animate-ping opacity-60" />
-                            </div>
-                          )}
-
-                          {/* TREE */}
-                          {cell?.type === 'tree' && (
-                            <div className="flex flex-col items-center justify-center group-hover:scale-110 transition-transform">
-                              <TreePine className="w-5 h-5 sm:w-7 sm:h-7 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.7)]" />
-                            </div>
-                          )}
-
-                          {/* PARK & FOUNTAIN */}
-                          {cell?.type === 'park' && (
-                            <div className="w-full h-full p-1 flex items-center justify-center relative">
-                              <div className="w-5 h-5 sm:w-7 sm:h-7 rounded-full bg-cyan-950 border border-cyan-400 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.6)]">
-                                <div className="w-2 h-2 rounded-full bg-cyan-300 animate-pulse" />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* ODDIY UY ($30) */}
-                          {cell?.type === 'residential_simple' && (
-                            <div
-                              className="relative flex flex-col items-center justify-center p-0.5 group-hover:-translate-y-1 transition-transform"
-                              style={{ transform: isometric3D ? 'translateZ(10px)' : 'none' }}
-                            >
-                              <Home
-                                className="w-5 h-5 sm:w-6 sm:h-6"
-                                style={{
-                                  color: cellColor?.hex || '#00f0ff',
-                                  filter: `drop-shadow(0 0 6px ${cellColor?.hex || '#00f0ff'})`,
-                                }}
-                              />
-                              <span className="text-[7px] sm:text-[8px] font-mono font-bold text-white bg-black/70 px-1 rounded truncate max-w-[34px] sm:max-w-[44px]">
-                                {cell.instagram ? cell.instagram.replace('@', '') : 'Oddiy'}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* BIZNES UCHUN BINO ($60) */}
-                          {cell?.type === 'business' && (
-                            <div
-                              className="relative flex flex-col items-center justify-center p-0.5 group-hover:-translate-y-1 transition-transform"
-                              style={{ transform: isometric3D ? 'translateZ(14px)' : 'none' }}
-                            >
-                              <Building2
-                                className="w-5 h-5 sm:w-7 sm:h-7"
-                                style={{
-                                  color: cellColor?.hex || '#ffb703',
-                                  filter: `drop-shadow(0 0 8px ${cellColor?.hex || '#ffb703'})`,
-                                }}
-                              />
-                              <span className="text-[7px] font-mono text-amber-300 bg-black/80 px-1 rounded truncate max-w-[36px] sm:max-w-[44px]">
-                                BIZNES
-                              </span>
-                            </div>
-                          )}
-
-                          {/* OSMONO'PAR BINO (1, 20, 100 Qavat) */}
-                          {cell?.type === 'skyscraper' && (
-                            <div
-                              className="relative flex flex-col items-center justify-center group-hover:-translate-y-2 transition-transform"
-                              style={{
-                                transform: isometric3D
-                                  ? `translateZ(${cell.floors === 100 ? '34px' : cell.floors === 20 ? '22px' : '12px'})`
-                                  : 'none',
-                              }}
-                            >
-                              {/* 100 floors ultra glowing beacon beam */}
-                              {cell.floors === 100 && (
-                                <div className="absolute -top-6 w-1 h-6 bg-gradient-to-t from-cyan-400 to-white animate-pulse shadow-[0_0_12px_#00f0ff]" />
-                              )}
-                              <Building
-                                className={`w-5 h-5 sm:w-7 sm:h-7 ${cell.floors === 100 ? 'text-white' : ''}`}
-                                style={{
-                                  color: cell.floors === 100 ? '#ffffff' : cellColor?.hex || '#b026ff',
-                                  filter: `drop-shadow(0 0 ${cell.floors === 100 ? '14px' : '8px'} ${cellColor?.hex || '#00f0ff'})`,
-                                }}
-                              />
-                              <span
-                                className={`text-[7px] font-mono font-bold px-1 rounded ${
-                                  cell.floors === 100
-                                    ? 'bg-purple-600 text-white animate-bounce'
-                                    : cell.floors === 20
-                                    ? 'bg-blue-600 text-cyan-200'
-                                    : 'bg-gray-800 text-gray-300'
-                                }`}
-                              >
-                                {cell.floors}Q
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Instagram Badge dot if citizen assigned */}
-                          {cell?.instagram && (
-                            <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-pink-500 shadow-[0_0_5px_#ec4899]" />
-                          )}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Bottom Grid Legend / Citizens count */}
-            <div className="relative z-10 mt-4 flex items-center justify-between text-xs text-gray-400 border-t border-gray-800/80 pt-3 flex-wrap gap-2">
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#00f0ff]" /> Oddiy Uy
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24]" /> Biznes
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_6px_#a855f7]" /> Osmono'par
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-pink-500 shadow-[0_0_6px_#ec4899]" /> @Instagram
-                </span>
-              </div>
-
-              <div className="font-mono text-cyan-400">
-                Usta Rustam: Aholi {population} kishi • {gridSize}x{gridSize} Hudud
+                  Sardor: Moviy Kiber Dizayn
+                </button>
+                <button
+                  onClick={() => handleAgentAutoDesign('laylo')}
+                  className="px-3 py-1 rounded-lg bg-purple-950/60 border border-purple-500/40 text-purple-300 hover:bg-purple-500/20 font-mono transition"
+                >
+                  Laylo: Galaktika Qirol Dizayn
+                </button>
               </div>
             </div>
           </div>
 
-          {/* RIGHT SIDEBAR: TOOLBAR, SKYSCRAPER FLOORS, COLORS & AGENTS */}
-          <div className="lg:col-span-1 space-y-4">
-            {/* Tool Selection Box */}
-            <div className="p-4 rounded-2xl bg-[#0b0f1a] border border-cyan-500/20 shadow-xl">
-              <h3 className="text-sm font-bold text-white font-['Space_Grotesk'] mb-3 flex items-center justify-between">
-                <span>Qurilish Asboblari</span>
-                <span className="text-[10px] font-mono text-gray-400">Bosing & Maydonga quying</span>
-              </h3>
+          {/* RIGHT: COMPREHENSIVE 3D BUILDING CATALOG & COLOR PALETTE */}
+          <div className="space-y-4">
+            {/* 1. ARCHITECTURAL WONDERS & BUILDINGS */}
+            <div className="p-4 rounded-2xl bg-gray-900/80 border border-cyan-500/30 shadow-xl space-y-3">
+              <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                <h3 className="text-sm font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-cyan-400" />
+                  <span>3D Bino Katalogi</span>
+                </h3>
+                <span className="text-[10px] text-gray-400 font-mono">v1.2</span>
+              </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* BURJ KHALIFA - $1 (ENG BALAND MINORA!) */}
+              <button
+                onClick={() => {
+                  sound.playClick();
+                  setSelectedTool('burj_khalifa');
+                }}
+                className={`w-full p-3 rounded-xl border text-left transition relative overflow-hidden group ${
+                  selectedTool === 'burj_khalifa'
+                    ? 'border-amber-400 bg-gradient-to-r from-amber-950/80 to-yellow-950/80 shadow-[0_0_20px_rgba(245,158,11,0.4)]'
+                    : 'border-amber-500/40 bg-gray-950/70 hover:border-amber-400'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300">
+                      <Crown className="w-5 h-5 fill-amber-400 text-amber-300" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white group-hover:text-amber-300">
+                        Burj Khalifa
+                      </h4>
+                      <p className="text-[10px] text-amber-400 font-mono font-bold">
+                        $1 (Eng baland minora!)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500 text-black">
+                    VIP $1
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-300 mt-1">
+                  Shahardagi eng baland osmono'par qasr (mutlaq balandlik) • +50,000 aholi
+                </p>
+              </button>
+
+              {/* STANDARD & PREMIUM BUILDINGS */}
+              <div className="space-y-2">
                 {/* Oddiy Uy ($30) */}
                 <button
                   onClick={() => {
                     sound.playClick();
                     setSelectedTool('residential_simple');
                   }}
-                  className={`p-2.5 rounded-xl border text-left transition ${
+                  className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
                     selectedTool === 'residential_simple'
-                      ? 'bg-cyan-950/80 border-cyan-400 text-white shadow-[0_0_12px_rgba(6,182,212,0.3)]'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                      ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-300 hover:border-gray-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2.5">
                     <Home className="w-4 h-4 text-cyan-400" />
-                    <span className="text-xs font-mono font-bold text-cyan-300">$30</span>
+                    <div>
+                      <div className="text-xs font-semibold text-white">Oddiy Uy</div>
+                      <div className="text-[10px] text-gray-400">+6 aholi</div>
+                    </div>
                   </div>
-                  <p className="text-xs font-semibold">Oddiy Uy</p>
-                  <p className="text-[10px] text-gray-400">+6 Aholi</p>
+                  <span className="text-xs font-mono font-bold text-cyan-400">$30</span>
                 </button>
 
                 {/* Biznes Binosi ($60) */}
@@ -915,317 +933,369 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
                     sound.playClick();
                     setSelectedTool('business');
                   }}
-                  className={`p-2.5 rounded-xl border text-left transition ${
+                  className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
                     selectedTool === 'business'
-                      ? 'bg-amber-950/80 border-amber-400 text-white shadow-[0_0_12px_rgba(251,191,36,0.3)]'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                      ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-300 hover:border-gray-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <Building2 className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs font-mono font-bold text-amber-300">$60</span>
+                  <div className="flex items-center gap-2.5">
+                    <Building className="w-4 h-4 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">Biznes Binosi</div>
+                      <div className="text-[10px] text-gray-400">+14 ish o'rni & aholi</div>
+                    </div>
                   </div>
-                  <p className="text-xs font-semibold">Biznes Bino</p>
-                  <p className="text-[10px] text-gray-400">+$3.5/sek daromad</p>
+                  <span className="text-xs font-mono font-bold text-amber-400">$60</span>
                 </button>
 
-                {/* Osmono'par Bino */}
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    setSelectedTool('skyscraper');
-                  }}
-                  className={`p-2.5 rounded-xl border text-left transition col-span-2 ${
+                {/* Osmono'par (1Q, 20Q, 100Q) */}
+                <div
+                  className={`p-2.5 rounded-xl border transition ${
                     selectedTool === 'skyscraper'
-                      ? 'bg-purple-950/80 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                      ? 'border-cyan-400 bg-cyan-950/40'
+                      : 'border-gray-800 bg-gray-950/60'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5">
-                      <Building className="w-4 h-4 text-purple-400" />
-                      <span className="text-xs font-semibold">Osmono'par Bino</span>
+                  <div
+                    onClick={() => {
+                      sound.playClick();
+                      setSelectedTool('skyscraper');
+                    }}
+                    className="flex items-center justify-between cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Building2 className="w-4 h-4 text-purple-400" />
+                      <div>
+                        <div className="text-xs font-semibold text-white">Osmono'par Bino</div>
+                        <div className="text-[10px] text-gray-400">{selectedFloors} qavat</div>
+                      </div>
                     </div>
-                    <span className="text-xs font-mono font-bold text-purple-300">
+                    <span className="text-xs font-mono font-bold text-purple-400">
                       ${selectedFloors === 100 ? 200 : selectedFloors === 20 ? 120 : 20}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 mt-2">
+
+                  {/* Floor selector pills */}
+                  <div className="grid grid-cols-3 gap-1.5 mt-2 pt-2 border-t border-gray-800/80">
                     {([1, 20, 100] as SkyscraperFloors[]).map(fl => (
-                      <span
+                      <button
                         key={fl}
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           sound.playClick();
                           setSelectedTool('skyscraper');
                           setSelectedFloors(fl);
                         }}
-                        className={`flex-1 py-1 text-center text-[10px] font-mono rounded border cursor-pointer transition ${
-                          selectedFloors === fl && selectedTool === 'skyscraper'
-                            ? 'bg-purple-600 text-white border-purple-400 font-bold'
-                            : 'bg-gray-900 text-gray-400 border-gray-700 hover:text-white'
+                        className={`py-1 rounded text-[10px] font-mono font-bold border transition ${
+                          selectedTool === 'skyscraper' && selectedFloors === fl
+                            ? 'bg-purple-600 border-purple-400 text-white'
+                            : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white'
                         }`}
                       >
                         {fl} Qavat ({fl === 100 ? '$200' : fl === 20 ? '$120' : '$20'})
-                      </span>
+                      </button>
                     ))}
                   </div>
-                </button>
+                </div>
 
-                {/* Daraxt Ekish ($10) */}
+                {/* Cyber Villa ($500) */}
                 <button
                   onClick={() => {
                     sound.playClick();
-                    setSelectedTool('tree');
+                    setSelectedTool('cyber_villa');
                   }}
-                  className={`p-2 rounded-xl border text-left transition ${
-                    selectedTool === 'tree'
-                      ? 'bg-emerald-950/80 border-emerald-400 text-white'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                  className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+                    selectedTool === 'cyber_villa'
+                      ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-300 hover:border-gray-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <TreePine className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-mono font-bold text-emerald-300">$10</span>
+                  <div className="flex items-center gap-2.5">
+                    <Gem className="w-4 h-4 text-teal-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">Kiber Villa</div>
+                      <div className="text-[10px] text-gray-400">Hovuzli qasr • +25 aholi</div>
+                    </div>
                   </div>
-                  <p className="text-[11px] font-semibold mt-1">Daraxt Ekish</p>
+                  <span className="text-xs font-mono font-bold text-teal-400">$500</span>
                 </button>
 
-                {/* Yo'l Solish ($5) */}
+                {/* Megapolis Mall ($1,500) */}
                 <button
                   onClick={() => {
                     sound.playClick();
-                    setSelectedTool('road');
+                    setSelectedTool('megamall');
                   }}
-                  className={`p-2 rounded-xl border text-left transition ${
-                    selectedTool === 'road'
-                      ? 'bg-gray-800 border-gray-400 text-white'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                  className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+                    selectedTool === 'megamall'
+                      ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-300 hover:border-gray-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <Footprints className="w-4 h-4 text-yellow-400" />
-                    <span className="text-xs font-mono font-bold text-yellow-300">$5</span>
+                  <div className="flex items-center gap-2.5">
+                    <ShoppingBag className="w-4 h-4 text-pink-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">Savdo Majmuasi (Mall)</div>
+                      <div className="text-[10px] text-gray-400">+200 xaridor & aholi</div>
+                    </div>
                   </div>
-                  <p className="text-[11px] font-semibold mt-1">Yo'l Solish</p>
+                  <span className="text-xs font-mono font-bold text-pink-400">$1,500</span>
                 </button>
 
-                {/* Park / Favvora ($25) */}
+                {/* Kosmodrom ($5,000) */}
                 <button
                   onClick={() => {
                     sound.playClick();
-                    setSelectedTool('park');
+                    setSelectedTool('spaceport');
                   }}
-                  className={`p-2 rounded-xl border text-left transition ${
-                    selectedTool === 'park'
-                      ? 'bg-blue-950/80 border-blue-400 text-white'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                  className={`w-full p-2.5 rounded-xl border text-left transition flex items-center justify-between ${
+                    selectedTool === 'spaceport'
+                      ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-300 hover:border-gray-700'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <Sparkles className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs font-mono font-bold text-blue-300">$25</span>
+                  <div className="flex items-center gap-2.5">
+                    <Rocket className="w-4 h-4 text-indigo-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-white">Kosmodrom</div>
+                      <div className="text-[10px] text-gray-400">Kiber raketalar • +150 aholi</div>
+                    </div>
                   </div>
-                  <p className="text-[11px] font-semibold mt-1">Park & Favvora</p>
+                  <span className="text-xs font-mono font-bold text-indigo-400">$5,000</span>
                 </button>
 
-                {/* Buzish / Demolish */}
+                {/* Yo'l, Daraxt, Park */}
+                <div className="grid grid-cols-3 gap-1.5 pt-1">
+                  <button
+                    onClick={() => {
+                      sound.playClick();
+                      setSelectedTool('road');
+                    }}
+                    className={`p-2 rounded-xl border text-center transition ${
+                      selectedTool === 'road'
+                        ? 'border-cyan-400 bg-cyan-950/40 text-cyan-300'
+                        : 'border-gray-800 bg-gray-950/60 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <Footprints className="w-3.5 h-3.5 mx-auto mb-1 text-cyan-400" />
+                    <div className="text-[10px] font-bold">Yo'l</div>
+                    <div className="text-[9px] font-mono text-cyan-400">$5</div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      sound.playClick();
+                      setSelectedTool('tree');
+                    }}
+                    className={`p-2 rounded-xl border text-center transition ${
+                      selectedTool === 'tree'
+                        ? 'border-emerald-400 bg-emerald-950/40 text-emerald-300'
+                        : 'border-gray-800 bg-gray-950/60 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <TreePine className="w-3.5 h-3.5 mx-auto mb-1 text-emerald-400" />
+                    <div className="text-[10px] font-bold">Daraxt</div>
+                    <div className="text-[9px] font-mono text-emerald-400">$10</div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      sound.playClick();
+                      setSelectedTool('park');
+                    }}
+                    className={`p-2 rounded-xl border text-center transition ${
+                      selectedTool === 'park'
+                        ? 'border-purple-400 bg-purple-950/40 text-purple-300'
+                        : 'border-gray-800 bg-gray-950/60 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mx-auto mb-1 text-purple-400" />
+                    <div className="text-[10px] font-bold">Park</div>
+                    <div className="text-[9px] font-mono text-purple-400">$25</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Utility Tools: Demolish & Inspect */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
                 <button
                   onClick={() => {
                     sound.playClick();
                     setSelectedTool('demolish');
                   }}
-                  className={`p-2 rounded-xl border text-left transition ${
+                  className={`p-2 rounded-xl border text-center font-mono text-xs flex items-center justify-center gap-1.5 transition ${
                     selectedTool === 'demolish'
-                      ? 'bg-rose-950/80 border-rose-400 text-white shadow-[0_0_10px_rgba(244,63,94,0.3)]'
-                      : 'bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700'
+                      ? 'border-rose-500 bg-rose-950/50 text-rose-300 font-bold'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-400 hover:text-rose-300'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <Trash2 className="w-4 h-4 text-rose-400" />
-                    <span className="text-xs font-mono font-bold text-rose-300">$0</span>
-                  </div>
-                  <p className="text-[11px] font-semibold mt-1">Buzish (Ekskavator)</p>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Buzish</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    sound.playClick();
+                    setSelectedTool('inspect');
+                  }}
+                  className={`p-2 rounded-xl border text-center font-mono text-xs flex items-center justify-center gap-1.5 transition ${
+                    selectedTool === 'inspect'
+                      ? 'border-purple-500 bg-purple-950/50 text-purple-300 font-bold'
+                      : 'border-gray-800 bg-gray-950/60 text-gray-400 hover:text-purple-300'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Tekshirish</span>
                 </button>
               </div>
             </div>
 
-            {/* Uy Ranglari ($10 - $30) */}
-            <div className="p-4 rounded-2xl bg-[#0b0f1a] border border-cyan-500/20 shadow-xl">
-              <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-cyan-300">
-                  <Palette className="w-3.5 h-3.5" />
-                  Uy Ranglari ($10 - $30)
+            {/* 2. YANGI RANGLAR & 24K OLTIN ($999.9) PALITRASI */}
+            <div className="p-4 rounded-2xl bg-gray-900/80 border border-purple-500/30 shadow-xl space-y-2.5">
+              <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                <h3 className="text-xs font-bold text-white uppercase font-mono flex items-center gap-1.5">
+                  <Palette className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Fasad Ranglari</span>
+                </h3>
+                <span className="text-[10px] text-amber-400 font-mono font-bold">
+                  Oltin $999.9
                 </span>
-                <span className="text-[10px] text-gray-400">Fasad & Neon</span>
-              </h3>
-
-              <div className="space-y-1.5">
-                {BUILDING_COLORS.map(col => {
-                  const isChosen = selectedColor.id === col.id;
-                  return (
-                    <button
-                      key={col.id}
-                      onClick={() => {
-                        sound.playClick();
-                        setSelectedColor(col);
-                      }}
-                      className={`w-full px-2.5 py-1.5 rounded-lg border text-xs flex items-center justify-between transition ${
-                        isChosen
-                          ? 'bg-gray-800/90 border-cyan-400 text-white'
-                          : 'bg-gray-900/50 border-gray-800/80 text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-3.5 h-3.5 rounded-full border border-white/40 shadow-sm"
-                          style={{ backgroundColor: col.hex }}
-                        />
-                        <span className="font-medium text-white">{col.name}</span>
-                      </div>
-                      <span className="font-mono text-cyan-300 text-[11px]">+${col.price}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 2 ta Uy Dizayneri Tezkor Maslahat & Uslublash */}
-            <div className="p-4 rounded-2xl bg-[#0b0f1a] border border-cyan-500/20 shadow-xl space-y-2">
-              <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider flex items-center gap-1.5 text-purple-300">
-                <Sparkles className="w-3.5 h-3.5" />
-                2 ta Uy Dizayneri Agent
-              </h3>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <button
-                  onClick={() => handleAgentAutoDesign('sardor')}
-                  className="p-2 rounded-xl bg-cyan-950/40 border border-cyan-500/40 hover:bg-cyan-500/20 text-cyan-300 flex flex-col items-center text-center transition"
-                  title="Sardor: Barcha binolarga Kiber Moviy neon nuri berish"
-                >
-                  <span className="font-bold text-[11px]">Arxitektor Sardor</span>
-                  <span className="text-[9px] text-gray-400 mt-0.5">Moviy Kiber Fasad</span>
-                </button>
-
-                <button
-                  onClick={() => handleAgentAutoDesign('laylo')}
-                  className="p-2 rounded-xl bg-purple-950/40 border border-purple-500/40 hover:bg-purple-500/20 text-purple-300 flex flex-col items-center text-center transition"
-                  title="Laylo: Barcha binolarga Qirol Binafshasi estetikasi berish"
-                >
-                  <span className="font-bold text-[11px]">Dizayner Laylo</span>
-                  <span className="text-[9px] text-gray-400 mt-0.5">Binafsha Estetika</span>
-                </button>
               </div>
 
-              {/* Usta Rustam territory progress info */}
-              <div className="pt-2 border-t border-gray-800/80 text-[11px] text-gray-400">
-                <div className="flex justify-between font-mono mb-1 text-[10px]">
-                  <span>Usta Rustam: Keyingi Kengaytirish</span>
-                  <span className="text-cyan-400">{expansionStatus.progressPercent}%</span>
-                </div>
-                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-cyan-400 to-purple-500 h-full transition-all duration-300"
-                    style={{ width: `${expansionStatus.progressPercent}%` }}
-                  />
-                </div>
+              {/* Color swatches */}
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {BUILDING_COLORS.map(color => (
+                  <button
+                    key={color.id}
+                    onClick={() => {
+                      sound.playClick();
+                      setSelectedColor(color);
+                    }}
+                    className={`w-full p-2 rounded-xl border text-left text-xs flex items-center justify-between transition ${
+                      selectedColor.id === color.id
+                        ? 'border-cyan-400 bg-gray-800/90 text-white font-bold shadow-md'
+                        : 'border-gray-800/80 bg-gray-950/50 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
+                        style={{ backgroundColor: color.hex }}
+                      />
+                      <span className="text-[11px] truncate">{color.name}</span>
+                      {color.isVip && (
+                        <span className="text-[9px] bg-amber-500 text-black px-1.5 py-0.2 rounded font-bold font-mono">
+                          VIP
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-[11px] text-cyan-300 font-bold shrink-0">
+                      +${color.price}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
           </div>
         </div>
 
-        {/* BINO TAFSILOTLARI VA INSTAGRAM NIKINI BIRIKTIRISH MODAL / POPOVER */}
+        {/* 3D BUILDING INSPECTOR & INSTAGRAM NAMING MODAL */}
         {inspectCell && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#0e1322] border border-cyan-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-scaleUp">
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#0e1424] border border-cyan-500/50 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-scaleUp">
               <button
                 onClick={() => setInspectCell(null)}
-                className="absolute top-4 right-4 p-1.5 rounded-lg text-gray-400 hover:text-white bg-gray-900/60"
+                className="absolute top-4 right-4 p-1 rounded-lg text-gray-400 hover:text-white bg-gray-900/60"
               >
                 <X className="w-4 h-4" />
               </button>
 
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-                  {inspectCell.type === 'residential_simple' ? (
-                    <Home className="w-6 h-6" />
-                  ) : inspectCell.type === 'business' ? (
-                    <Building2 className="w-6 h-6" />
-                  ) : inspectCell.type === 'skyscraper' ? (
-                    <Building className="w-6 h-6" />
-                  ) : (
-                    <Sparkles className="w-6 h-6" />
-                  )}
+                <div className="w-12 h-12 rounded-xl bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                  <Building2 className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="text-lg font-bold text-white font-['Space_Grotesk']">{inspectCell.name}</h4>
-                  <p className="text-xs text-cyan-400 font-mono">
+                  <h3 className="text-lg font-bold text-white font-['Space_Grotesk']">
+                    {inspectCell.customName || inspectCell.name}
+                  </h3>
+                  <p className="text-xs text-gray-400 font-mono">
                     Koordinata: ({inspectCell.x}, {inspectCell.y})
                   </p>
                 </div>
               </div>
 
-              {/* Instagram handle binding */}
-              <div className="mb-4 p-3.5 rounded-xl bg-gray-900/70 border border-pink-500/30">
-                <label className="block text-xs font-mono text-pink-300 uppercase mb-1.5 flex items-center gap-1.5">
-                  <Instagram className="w-3.5 h-3.5 text-pink-400" />
-                  Instagram Nikini Biriktirish
+              {/* Custom Name input */}
+              <div className="mb-4">
+                <label className="block text-xs font-mono text-cyan-300 uppercase mb-1.5">
+                  Bino Nomi (Instagram yoki maxsus nom):
+                </label>
+                <input
+                  type="text"
+                  value={editNameInput}
+                  onChange={e => setEditNameInput(e.target.value)}
+                  placeholder="Masalan: @bibixatcha2 qasri"
+                  className="w-full bg-black/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+
+              {/* Instagram Handle input */}
+              <div className="mb-4">
+                <label className="block text-xs font-mono text-pink-400 uppercase mb-1.5 flex items-center gap-1.5">
+                  <Instagram className="w-3.5 h-3.5" />
+                  <span>Instagram Niki:</span>
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={editInstagramInput}
-                    onChange={(e) => setEditInstagramInput(e.target.value)}
-                    placeholder="@sizning_nikingiz"
-                    className="flex-1 bg-black/60 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white font-mono focus:outline-none focus:border-pink-500"
+                    onChange={e => setEditInstagramInput(e.target.value)}
+                    placeholder="@tanlovmahallasi"
+                    className="flex-1 bg-black/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-pink-500"
                   />
                   <button
-                    onClick={handleSaveInstagram}
-                    className="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
+                    onClick={handleSaveInspectDetails}
+                    className="px-4 py-2 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1"
                   >
                     <Check className="w-3.5 h-3.5" />
-                    Saqlash
+                    <span>Saqlash</span>
                   </button>
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Ushbu bino egasiga Instagram profilini bog'lang. Shahar xaritasida ko'rinadi!
-                </p>
               </div>
 
               {/* Color alteration */}
-              {['residential_simple', 'business', 'skyscraper'].includes(inspectCell.type) && (
-                <div className="mb-4">
-                  <label className="block text-xs font-mono text-cyan-300 uppercase mb-1.5">
-                    Fasad Rangini O'zgartirish:
-                  </label>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {BUILDING_COLORS.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => {
-                          sound.playClick();
-                          const key = `${inspectCell.x},${inspectCell.y}`;
-                          const next = new Map(cells);
-                          const updated = { ...inspectCell, colorId: c.id };
-                          next.set(key, updated);
-                          setCells(next);
-                          setInspectCell(updated);
-                        }}
-                        className={`px-2 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 justify-center ${
-                          inspectCell.colorId === c.id
-                            ? 'border-white bg-white/10 text-white font-bold'
-                            : 'border-gray-800 text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.hex }} />
-                        <span className="truncate">{c.name}</span>
-                      </button>
-                    ))}
-                  </div>
+              <div className="mb-5">
+                <label className="block text-xs font-mono text-cyan-300 uppercase mb-1.5">
+                  Fasad Rangini Yangilash:
+                </label>
+                <div className="grid grid-cols-3 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                  {BUILDING_COLORS.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => {
+                        sound.playClick();
+                        const key = `${inspectCell.x},${inspectCell.y}`;
+                        const next = new Map(cells);
+                        const updated = { ...inspectCell, colorId: c.id };
+                        next.set(key, updated);
+                        setCells(next);
+                        setInspectCell(updated);
+                        triggerSaveNow({ cells: Array.from(next.entries()) });
+                      }}
+                      className={`px-2 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 justify-center ${
+                        inspectCell.colorId === c.id
+                          ? 'border-white bg-white/10 text-white font-bold'
+                          : 'border-gray-800 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.hex }} />
+                      <span className="truncate text-[10px]">{c.name}</span>
+                    </button>
+                  ))}
                 </div>
-              )}
+              </div>
 
-              {/* Demolish button inside modal */}
+              {/* Action Buttons */}
               <div className="flex justify-between items-center pt-3 border-t border-gray-800">
                 <button
                   onClick={() => {
@@ -1235,8 +1305,9 @@ export const CityBuilder: React.FC<CityBuilderProps> = ({
                     next.delete(key);
                     setCells(next);
                     setInspectCell(null);
+                    triggerSaveNow({ cells: Array.from(next.entries()) });
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-300 hover:bg-rose-900/60 text-xs font-medium flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-rose-300 hover:bg-rose-900/60 text-xs font-medium flex items-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                   Binoni Buzish

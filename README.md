@@ -1,107 +1,65 @@
-# Tanlov Mahallasi - 3D Cyberpunk City Builder 🏙️✨
+# 🏙️ Tanlov Mahallasi 3D (v1.2 Cyber) — O‘zbekiston Shahar Qurish O‘yini
 
-Mobil va kompyuterlar uchun mo'ljallangan futuristik 3D izometrik shahar qurish o'yini va Hokimiyat tizimli nazorat paneli.
-
----
-
-## ⚡ Asosiy xususiyatlar
-
-- **🎮 Interaktiv Shaharsozlik**:
-  - Oddiy uy ($30)
-  - Biznes binosi ($60)
-  - Osmono'par bino (1 qavat $20, 20 qavat $120, 100 qavat $200)
-  - Daraxt ($10), Yo'l ($5), Favvorali Park ($25)
-  - Kiber fasad ranglari ($10 - $30)
-  - 3D Izometrik va 2D tekis ko'rinish rejimi
-  - Kunduzgi, Quyosh botishi (Sunset) va Tungi kiber-neon yorug'liklar
-- **🤖 4 ta AI Agent**:
-  - **Sardor** (Arxitektor / Dizayner 1) - Moviy neon fasadlari
-  - **Laylo** (Dizayner 2) - Qirol binafshasi fasadlari
-  - **Usta Rustam** - Aholi o'sishi bilan hududni avtomatik 16x16 gacha kengaytiradi
-  - **Jamshid** - Hokimning bosh yordamchisi va hisoboti
-- **👑 Hokim Huquqi (God-Mode)**:
-  - Cheksiz byudjet, bepul binolar, shahar festivali va maxsus farmoyishlar
-- **💾 Har soniya avtomatik saqlash**:
-  - Har 1 soniyada va har bir foydalanuvchi harakatida (bino qurish, buzish, rang berish) `localStorage`ga to'liq saqlanadi
-  - Sahifa yangilanganda barcha o'zgarishlar saqlanib qoladi
-- **📸 Instagram Niklari Integratsiyasi**:
-  - Har bir bino fuqarolarining Instagram niki (`@...`) bilan bog'langan
-- **📧 Bog'lanish**:
-  - Email: `tanlovmahallasi@gmail.com`
-  - Rasmiy Instagram: `https://instagram.com/tanlovmahallasi`
+> O‘zbekistonning barcha 14 ta ma’muriy hududi, 200+ shahar va tumanlari, 360° 3D dvijok, Burj Khalifa ($1 eng baland minora), Prezidentlik Kengashi va Aholi uchun Milliy Ishlar tizimi!
 
 ---
 
-## 🔑 API Kalit kerakmi? (Savolga javob)
-
-**YO'Q! Ushbu ilovada hech qanday tashqi API kalit (IP/API Key) talab qilinmaydi.**
-Barcha o'yin mantig'i, audio sintezatori (Web Audio API), grafiklar va ma'lumotlar saqlanishi to'liq foydalanuvchi brauzerining o'zida ishlaydi. Hech qanday maxfiy kalitlar yoki pullik xizmatlar ulanmagan.
-
----
-
-## 🚀 Mahalliy kompyuterda ishga tushirish
-
-1. Ushbu loyihani yuklab oling yoki klon qiling:
-   ```bash
-   git clone <REPO_URL>
-   cd applet
-   ```
-
-2. Kerakli paketlarni o'rnating:
-   ```bash
-   npm install
-   ```
-
-3. Dasturni ishga tushiring:
-   ```bash
-   npm run dev
-   ```
-
-4. Brauzeringizda oching:
-   `http://localhost:3000`
+## ⚡ Bosh Vazir bo‘lib saylanish:
+* Rasmiy Email: `tanlovmahallasi@gmail.com`
+* Rasmiy Instagram: [@tanlovmahallasi](https://instagram.com/tanlovmahallasi)
 
 ---
 
-## 🌐 GitHub-ga yuklash usullari
+## 🚀 O‘zingizga shaxsiy sayt yaratish uchun tezkor qo‘llanma (3 qadam):
 
-### 1-usul: Google AI Studio interfeysidan 1 bosish orqali (Eng oson)
-1. Google AI Studio ekranning yuqori o'ng burchagidagi **«Export»** yoki **«GitHub»** tugmasini bosing.
-2. O'zingizning GitHub hisobingizni tanlang.
-3. Yangi repository nomi (masalan: `tanlov-mahallasi-city-builder`) kiriting va **«Push / Export»** tugmasini bosing. Loyiha avtomatik sizning GitHub hisobingizga yuklanadi!
+Bu loyiha **to‘liq ochiq manba (Open Source)** bo‘lib, har kim ushbu kodlardan foydalanib o‘ziga shaxsiy 3D shahar qurish o‘yini yoki veb-saytini yaratishi mumkin!
 
-### 2-usul: Git buyruqlari orqali
-1. [GitHub.com](https://github.com/new) saytiga kiring va yangi repository yarating (masalan: `tanlov-mahallasi`).
-2. Terminalda quyidagi buyruqlarni bajaring:
-   ```bash
-   git remote add origin https://github.com/SIZNING_GITHUB_NIKINGIZ/tanlov-mahallasi.git
-   git branch -M main
-   git push -u origin main
-   ```
-
----
-
-## 📦 Loyiha tuzilishi
-
+### 1-qadam: Repozitoriyani yuklab oling
+```bash
+git clone https://github.com/tanlovmahallasi/tanlov-mahallasi-3d.git
+cd tanlov-mahallasi-3d
 ```
-├── index.html                  # Asosiy HTML kirish fayli
-├── package.json                # Loyiha sozlamalari va kutubxonalar
-├── vite.config.ts              # Vite konfiguratsiyasi
-├── src/
-│   ├── main.tsx                # React entrypoint
-│   ├── App.tsx                 # Boshqaruv va 1-soniyalik saqlash tsikli
-│   ├── components/             # React komponentlari
-│   │   ├── CityBuilder.tsx     # 3D shahar qurish o'yini
-│   │   ├── MayorDashboard.tsx  # Hokimiyat nazorat paneli
-│   │   ├── Navbar.tsx          # Navigatsiya va jonli saqlash indikatori
-│   │   ├── HeroSection.tsx     # Bosh sahifa
-│   │   ├── FeaturesSection.tsx # Xususiyatlar kartochkalari
-│   │   ├── GallerySection.tsx  # 3D bino galereyasi
-│   │   ├── Footer.tsx          # Instagram va email bog'lanishi
-│   │   ├── ContactModal.tsx    # Email modal (tanlovmahallasi@gmail.com)
-│   │   └── DownloadModal.tsx   # Yuklab olish modali
-│   ├── game/
-│   │   └── rules.ts            # O'yin qoidalari va narxlar hisobi
-│   └── utils/
-│       ├── audio.ts            # Sci-Fi Web Audio sintezatori
-│       └── storage.ts          # LocalStorage xavfsiz saqlash tizimi
+*(Yoki saytdagi "Barcha Fayllarni ZIP Yuklab Olish" tugmasi orqali yuklab olib, arxivdan chiqaring)*
+
+### 2-qadam: Kerakli kutubxonalarni o‘rnating
+```bash
+npm install
 ```
+
+### 3-qadam: Saytni o‘z kompyuteringizda ishga tushiring
+```bash
+npm run dev
+```
+Brauzerda `http://localhost:3000` manzilini oching va zavqlaning!
+
+### 4-qadam: Internetga bepul joylash (Deploy)
+* Loyihani GitHub ga yuklang (`git push origin main`)
+* [Vercel.com](https://vercel.com) yoki [Netlify.com](https://netlify.com) saytiga ulab, 1 bosishda bepul internetga chiqaring!
+
+---
+
+## 🎮 O‘yin imkoniyatlari (v1.2):
+1. **360° 3D Real Dvijok**: Binolar 3D shaklda, yashil maysali tabiiy tuproq zamin, er osti ko‘rinmaydigan xavfsiz kamera.
+2. **O‘zbekistonning barcha shahar va tumanlari**: Google Maps rasmiy nomlari (Toshkent, Samarqand, Buxoro, Xiva, Nukus, Xo‘jayli, Taxiatosh, Yangiyo‘l va 200+ tumanlar).
+3. **Burj Khalifa**: Shahardagi eng baland minora (narxi atigi **$1**).
+4. **Prezidentlik Oliy Nazorat Paneli**:
+   - Siz Davlat Rahbarisiz (Prezident).
+   - Prezident Yordamchisi: **Adiz Rajabov**.
+   - Bosh Usta: Usta Rustam.
+   - Arxitektor Sardor & Dizayner Laylo.
+5. **Aholi uchun Milliy Ishlar (Bandlik tizimi)**:
+   - Rishton Kulolchiligi
+   - Buxoro Zardo‘zligi & Do‘ppido‘zlik
+   - Samarqand Tandir Nonvoyxonasi
+   - Marg‘ilon Ipakchiligi (Atlas & Adras)
+   - Xiva O‘ymakorligi & Temirchilik
+   - Milliy Osh & Choyxona Markazi
+   - Vodiy Bog‘dorchiligi & Uzumzorlar
+   - Milliy IT & Kiber-Muhandislik
+6. **Saylov tizimi**: Shahar va tuman Hokimlari (har oy), Hokim Yordamchilari (15 kunlik xizmat, 16-kuni yangi saylov). Prezidentlikka saylov bo‘lmaydi.
+7. **Har soniyada avtomatik saqlanish**: Hech bir taraqqiyot yo‘qolmaydi.
+
+---
+
+## 📄 Litsenziya
+Apache-2.0. Har kim bemalol o‘rganishi, o‘zgartirishi va o‘ziga sayt yaratishi mumkin!

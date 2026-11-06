@@ -19,10 +19,27 @@ export interface SavedActionLog {
   type: 'build' | 'demolish' | 'decree' | 'expand' | 'color' | 'instagram' | 'income' | 'system' | 'fund';
 }
 
+import { DistrictElectionState } from '../types/election.ts';
+import { NationalJob } from '../game/jobs.ts';
+
+export interface SavedDistrictData {
+  cells: [string, GridCell][];
+  population: number;
+  budget: number;
+  happiness: number;
+  gridSize: number;
+}
+
 export interface SavedGameState {
   version: number;
   timestamp: number;
   lastSavedTimestamp?: number;
+  currentDistrictId?: string;
+  playerInstagram?: string;
+  isPrezident?: boolean;
+  districtsData?: Record<string, SavedDistrictData>;
+  districtElections?: Record<string, DistrictElectionState>;
+  nationalJobs?: NationalJob[];
   gridSize: number;
   budget: number;
   population: number;

@@ -7,6 +7,7 @@ export interface GridCell {
   floors?: SkyscraperFloors;
   colorId?: string;
   name?: string;
+  customName?: string;
   instagram?: string;
   createdAt?: number;
   level?: number;
@@ -44,9 +45,10 @@ export interface CityStats {
   happiness: number;
   jobs: number;
   power: number; // percentage
-  gridSize: number; // e.g. 8, 10, 12, 14
+  gridSize: number; // e.g. 8, 10, 12, 14, 16
   taxRate: number; // e.g. 10%
   isHokimGodMode: boolean;
   timeOfDay: 'day' | 'sunset' | 'night';
   gameSpeed: number; // 0, 1, 2
+  hasBurjKhalifa?: boolean;
 }

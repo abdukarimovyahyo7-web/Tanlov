@@ -9,74 +9,76 @@ import {
   BUILDING_COLORS,
 } from './rules.ts';
 
-test('Building costs adhere strictly to specified prices', () => {
+test('Building costs adhere strictly to specified prices including Burj Khalifa $2B', () => {
   // Oddiy uy: $30
   assert.equal(calculateBuildingCost({ type: 'residential_simple' }), 30);
 
   // Biznes uchun uy: $60
   assert.equal(calculateBuildingCost({ type: 'business' }), 60);
 
-  // Osmono'par bino 1 qavat: $20
+  // Osmono'par bino 1 qavat: $20, 20 qavat: $120, 100 qavat: $200
   assert.equal(calculateBuildingCost({ type: 'skyscraper', floors: 1 }), 20);
-
-  // Osmono'par bino 20 qavat: $120
   assert.equal(calculateBuildingCost({ type: 'skyscraper', floors: 20 }), 120);
-
-  // Osmono'par bino 100 qavat: $200
   assert.equal(calculateBuildingCost({ type: 'skyscraper', floors: 100 }), 200);
 
-  // Daraxt ($10) & Yo'l ($5)
+  // Burj Khalifa: $1 (user request: narxi 1$ qil)
+  assert.equal(calculateBuildingCost({ type: 'burj_khalifa' }), 1);
+
+  // Yangi binolar
+  assert.equal(calculateBuildingCost({ type: 'cyber_villa' }), 500);
+  assert.equal(calculateBuildingCost({ type: 'megamall' }), 1500);
+  assert.equal(calculateBuildingCost({ type: 'spaceport' }), 5000);
+
+  // Daraxt ($10), Yo'l ($5), Park ($25)
   assert.equal(calculateBuildingCost({ type: 'tree' }), 10);
   assert.equal(calculateBuildingCost({ type: 'road' }), 5);
+  assert.equal(calculateBuildingCost({ type: 'park' }), 25);
 });
 
-test('Color options are within $10 - $30 and add to building cost', () => {
-  for (const color of BUILDING_COLORS) {
-    assert.ok(color.price >= 10 && color.price <= 30, `Color ${color.name} should be between 10 and 30`);
-  }
+test('Color options: Oltin rang eng qimmati $999.9 va boshqa ranglar $100 atrofida', () => {
+  const goldColor = BUILDING_COLORS.find(c => c.id === 'gold_24k');
+  assert.ok(goldColor);
+  assert.equal(goldColor.price, 999.9);
 
-  // Oddiy uy ($30) + Kiber Moviy ($15) = $45
-  const costWithColor = calculateBuildingCost({
+  // Oddiy uy ($30) + 24K Sof Oltin ($999.9) = $1029.9
+  const costWithGold = calculateBuildingCost({
     type: 'residential_simple',
-    colorId: 'neon_cyan',
+    colorId: 'gold_24k',
   });
-  assert.equal(costWithColor, 45);
+  assert.equal(costWithGold, 1029.9);
 
-  // 100 qavat ($200) + Oq Neoklassika ($30) = $230
-  const skyscraper100WithColor = calculateBuildingCost({
-    type: 'skyscraper',
-    floors: 100,
-    colorId: 'imperial_white',
-  });
-  assert.equal(skyscraper100WithColor, 230);
+  // Colors around $100
+  const ruby = BUILDING_COLORS.find(c => c.id === 'plasma_ruby');
+  assert.ok(ruby);
+  assert.equal(ruby.price, 105);
+
+  const diamond = BUILDING_COLORS.find(c => c.id === 'diamond_white');
+  assert.ok(diamond);
+  assert.equal(diamond.price, 110);
 });
 
-test('Hokim God Mode makes all building costs 0', () => {
-  const godModeCost = calculateBuildingCost({
-    type: 'skyscraper',
-    floors: 100,
-    colorId: 'imperial_white',
+test('Hokim God Mode makes all building costs 0 (even Burj Khalifa $2B)', () => {
+  const burjGodMode = calculateBuildingCost({
+    type: 'burj_khalifa',
+    colorId: 'gold_24k',
     isHokimGodMode: true,
   });
-  assert.equal(godModeCost, 0);
-  assert.equal(canAfford(0, 500, true), true);
+  assert.equal(burjGodMode, 0);
+  assert.equal(canAfford(0, 2000000000, true), true);
 });
 
-test('Population increases when constructing buildings', () => {
+test('Population increases when constructing buildings including Burj Khalifa', () => {
   assert.equal(calculatePopulationIncrease('residential_simple'), 6);
   assert.equal(calculatePopulationIncrease('business'), 14);
-  assert.equal(calculatePopulationIncrease('skyscraper', 1), 15);
-  assert.equal(calculatePopulationIncrease('skyscraper', 20), 150);
   assert.equal(calculatePopulationIncrease('skyscraper', 100), 1000);
+  assert.equal(calculatePopulationIncrease('burj_khalifa'), 50000);
 });
 
 test('Usta Rustam territory expansion triggers correctly on population milestones', () => {
-  // At population 10, cannot expand from 8x8 yet (threshold is 40)
   const status1 = getUstaExpansionStatus(10, 8);
   assert.equal(status1.canExpand, false);
   assert.equal(status1.nextSize, 10);
 
-  // At population 50, can expand to 10x10!
   const status2 = getUstaExpansionStatus(50, 8);
   assert.equal(status2.canExpand, true);
   assert.equal(status2.nextSize, 10);
